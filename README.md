@@ -4,6 +4,18 @@ An **openHAB JavaScript Transformation** script that normalizes and rounds incom
 
 It also includes a few special cases (e.g., typical sea-level pressure ranges, near 50 Hz, temperature around freezing) and can optionally convert certain imperial/alternative units to SI-friendly ones.
 
+Example items:
+
+```ini
+Number:Temperature My_Outside_Temp "My Temperature [%.1f %unit%]" {
+   channel="mqtt:topic:openhab:mine:temp" [profile="transform:JS",toItemScript="significant.js"]
+  }
+
+Number:Speed Zugspitze_WindSpeed "Zugspitze Windspeed [%.0f %unit%]"  {
+  channel="weathercompany:weather-observations:myaccount:zugspitze:currentWindSpeed" [profile="transform:JS",toItemScript="significant.js?precision=1.5"]
+}
+```
+
 ---
 
 ## Features
