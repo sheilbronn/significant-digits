@@ -1,14 +1,14 @@
 // significant.js
 // This is a OpenHAB transformation script to reduce incoming values to a unit-dependant, typical number of significant figures
-// in the SI unit system plus some other features. It should support all OpenHAB unit types.
-// It also covers some special cases for significance, e.g. values around 50Hz, or temperature close to freezing point etc.
+// in the SI unit system plus some other features. It should support all known OpenHAB unit types.
+// It also covers some special cases for digit significance, e.g. values around 50Hz, or temperature close to the freezing point etc.
 
-// Parameters (optional):
-// "precision" : a number of significant figures to round to (used to override the unit specific default, as in ...?precision=3)
+// Script parameters (all are optional):
+// "precision" : a number of significant figures to round to (used to override the unit specific defaults), use like ...?precision=3
 // "scale" : a number of decimal places to round to, use like ...?scale=0
-// "div" : a divisor to apply to the input value before rounding, use like ...?div=1K oder 1M or 1000 (useful since OpenHAB only supports one transformation at a time)
+// "div" : a divisor to apply to the input value before rounding, use like ...?div=10 oder 1M or 1000 (useful since OpenHAB only supports one transformation at a time)
 // "mult" : a multiplier to apply to the input value before rounding, use like ...?mult=1K oder 1M oder 1000 (useful since OpenHAB only supports one transformation at a time)
-// "unit" : a unit to force the output to, use like ...?unit=°C (unit=. will remove the unit given in the input)
+// "unit" : a unit to force the output to, use like ...?unit=°C (unit=. will remove any unit passed in the input)
 // "verbose" : one of {t|true|1|yes|y||false|no} to enable or disable logging, use like ...?verbose=true
 // "testing" : {t|true|1|yes|y||false|no} to enable or disable testing of new features, use like ...?testing=y
 // "skew" : a number to add to the input value before rounding, use like ...?skew=0.5 (e.g. for 0.5 significant figures)
@@ -21,6 +21,10 @@ var flickerEnabled = false // if default set to true here, output will always ha
 var verboseIncreased = false; // if true and verbose is true, then log even more details
 var scriptname = "significant.js: "; // will hold the script name for logging
 var alwaysLogFinal  = false; // if set to true, always log the final output of the transformation
+
+var abs = Math.abs;
+var max = Math.max;
+var min = Math.min;
 
 /* All understood units should be according to: (uunits)
    https://www.openhab.org/docs/concepts/units-of-measurement.html:
@@ -203,7 +207,7 @@ function significantTransform(i, opts = {}) {
         strVerb += ` FLICKER=${flickerEnabled}`;
     }
 
-    // input = "0.0123400" ; // keep some corner cases for testing purposes
+    // input = "0.0123400" ; // keep some strange corner cases for testing purposes
     // input = "04.0"
     // input = ".09870"
     // input = "-0.19870"
@@ -222,7 +226,7 @@ function significantTransform(i, opts = {}) {
 
         // default levels: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
         let level = setDefault(scaleAsked, 3)        // your "scale" concept: how deep to include
-        level = Math.max(0, Math.min(4, (level|0)))  // clamp to [0..4]
+        level = max(0, min(4, (level|0)))  // clamp to [0..4]
 
         // local wall time -> UTC epoch ms (treat tzoff as a fixed-offset zone)
         const localUtcMs = Date.UTC(+y, +mo - 1, +d, +hh, +mm, +ss, +ms)
@@ -297,7 +301,7 @@ function significantTransform(i, opts = {}) {
 
     switch (unit_i) {  // modify precision defaults depending on the unit coming in or asked for (uunits)
     case "K": // Temperature 
-        precisionSeeked = (Math.abs(value) < 10) ? 1.5 : 2.5
+        precisionSeeked = (abs(value) < 10) ? 1.5 : 2.5
         logit(`Kelvin is hit: value=${value} ${unit_i} ${strVerb}`);
         break;
     case "°F": 
@@ -307,7 +311,7 @@ function significantTransform(i, opts = {}) {
         }
         // fallthrough to Celsius ...
     case "°C":
-        precisionSeeked = (Math.abs(value) < 1) ? 0.5 : (Math.abs(value) < 10) ? 1.5 : 2.5
+        precisionSeeked = (abs(value) < 1) ? 0.5 : (abs(value) < 10) ? 1.5 : 2.5
         break;
 
     // Speed
@@ -316,7 +320,7 @@ function significantTransform(i, opts = {}) {
         unit_i = "mph"
         // fallthrough to mph ...
     case "mph":    
-        precisionSeeked = (Math.abs(value) < 10) ? 1.5 : (Math.abs(value) < 30) ? 1.3 : 1.5
+        precisionSeeked = (abs(value) < 10) ? 1.5 : (abs(value) < 30) ? 1.3 : 1.5
         scaleSeeked = 0
         if (siAsked) {
             // convert mph to km/h (prefer km/h over m/s for typical weather station wind speed):
@@ -329,7 +333,7 @@ function significantTransform(i, opts = {}) {
         unit_i = "km/h"
         // fallthrough to km/h ...
     case "km/h":
-        precisionSeeked = (Math.abs(value) < 5) ? 1 : (Math.abs(value) < 20) ? 1.5 : 2
+        precisionSeeked = (abs(value) < 5) ? 1 : (abs(value) < 20) ? 1.5 : 2
         break;
     case "in/h":
         if (siAsked) {
@@ -375,8 +379,8 @@ function significantTransform(i, opts = {}) {
         precisionSeeked = 4
         break    
     case "s":
-        if (Math.abs(value)<1000) {
-            precisionSeeked = (Math.abs(value) <= 3) ? 1 : (Math.abs(value) <= 10) ? 0.5 : 1.5
+        if (abs(value)<1000) {
+            precisionSeeked = (abs(value) <= 3) ? 1 : (abs(value) <= 10) ? 0.5 : 1.5
         } else {
             precisionSeeked = 99
             scaleSeeked = -2
@@ -449,12 +453,12 @@ function significantTransform(i, opts = {}) {
     case "kW":
     case "MW":
     case "dBm": // Power
-        precisionSeeked = (Math.abs(value) < 100) ? 1.5 : 2
+        precisionSeeked = (abs(value) < 100) ? 1.5 : 2
         break
 
     case "W/m²":
     case "µW/cm²":        
-        precisionSeeked = (Math.abs(value) < 10) ? 1 : 2
+        precisionSeeked = (abs(value) < 10) ? 1 : 2
         break
 
     case "V": // Voltage
@@ -476,7 +480,7 @@ function significantTransform(i, opts = {}) {
     case "L/m":
     case "l/m":
         precisionSeeked = 2
-        if (isBetween(Math.abs(value), 10, 300)) { // increase precision for gas pumps measuring small amounts of liters        
+        if (isBetween(abs(value), 10, 300)) { // increase precision for gas pumps measuring small amounts of liters        
             precisionSeeked += 0.2
         }
         break
@@ -521,7 +525,7 @@ function significantTransform(i, opts = {}) {
         break;
 
     case "%": // Percent
-        precisionSeeked = isBetween(Math.abs(value), 3, 87) ? 1.5 : 1.2 // be more precise closer to 0% or 100%
+        precisionSeeked = isBetween(abs(value), 3, 87) ? 1.5 : 1.2 // be more precise closer to 0% or 100%
         break;
 
     case "°": // Angle
@@ -592,7 +596,7 @@ function significantTransform(i, opts = {}) {
             // so x.5 makes mult=2, x.4 makes 3, x.3 makes 4, ... and
             debugit(`precisionSeeked=${precisionSeeked}, mult=${mult}`);
         }
-        magnitude = Math.floor(Math.log10(Math.abs(value)))
+        magnitude = Math.floor(Math.log10(abs(value)))
         power = Math.pow(10, precisionSeeked - magnitude - 1)
          // only for precisionSeeked equals 1
         if ( 1===0 && precisionSeeked === 1 && mult>1 ) {  // if only one significant figure is asked for, then lower values in the second figure are more significant
@@ -648,7 +652,7 @@ function significantTransform(i, opts = {}) {
         // Check if the matched string has more than 8 characters to ensure it's a significant repeating pattern
         if (matches && matches[0].length > 8) {
             var keep = precisionSeeked - ( matches[1] === "0" ? 0 : matches[1].length ) // keep is the number of decimals to keep
-            newvalue = Number(matches[1] + "." + matches[2] + matches[3]).toFixed( Math.max(0,keep) )
+            newvalue = Number(matches[1] + "." + matches[2] + matches[3]).toFixed( max(0,keep) )
             debugit(`${matches[3]} is repeated at the end of ${valuestring}: ${precisionSeeked} : ${matches[1]}.${matches[2]}_${matches[3]}_${matches[4]}, keep=${keep} > ${newvalue} ${strVerb}`);
         } else if (valuestring.length > 9) {
             debugit(`long valuestring=${valuestring} didn't match. CC ${strVerb}`);
@@ -758,7 +762,7 @@ function compassAngleToDir(deg,scale=2) {
         ["N", "NbE", "NNE", "NEbN", "NE", "NEbE", "ENE", "EbN", "E", "EbS", "ESE", "SEbE", "SE", "SEbS", "SSE", "SbE",
          "S", "SbW", "SSW", "SWbS", "SW", "SWbW", "WSW", "WbS", "W", "WbN", "WNW", "NWbW", "NW", "NWbN", "NNW", "NbW"] // scale=4
     ]
-    scale = Math.max(1, Math.min(4, (scale|0))) // clamp scale to [1..4]
+    scale = max(1, min(4, (scale|0))) // clamp scale to [1..4]
     const dirs = directions[scale - 1]
     const step = 360 / dirs.length
     deg = ((deg % 360) + 360) % 360 // bring deg into range [0..360)
