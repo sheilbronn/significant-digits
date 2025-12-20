@@ -1,0 +1,4 @@
+# ignore all JS files...
+*.js
+# ...except this one
+!significant.js
