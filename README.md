@@ -1,164 +1,156 @@
-# significant.js
+# 🌡️ significant.js — Human-Friendly Sensor Values for openHAB
 
-An **openHAB JavaScript Transformation** script that normalizes and rounds incoming numeric state strings to a *unit-dependent, typical* number of significant figures (and/or a fixed decimal scale). It is designed for values that often come from sensors (weather, power, air quality, etc.) and aims to produce “human-friendly” numbers while staying consistent.
+**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a *real-world friendly format*. Think of it as a digital eye-roll at values like `6.234567 °C` — which becomes a clean `6.5 °C` or even `6 °C`, depending on context.
 
-It also includes a few special cases (e.g., typical sea-level pressure ranges, near 50 Hz, temperature around freezing) and can optionally convert certain imperial/alternative units to SI-friendly ones.
+It’s built for numeric state values from **weather**, **power**, **air quality**, or other sensors, smoothing out meaningless fluctuations while respecting physical reality.
 
-Example items:
+🧠 Smart enough to:
+
+- Handle typical units (°C, m/s, W, …)
+- Reduce irrelevant "flicker"
+- Convert between units (e.g., °F → °C, mph → km/h)
+- Special-case real-world patterns (e.g., 1000 mbar pressure)
+
+---
+
+## ✨ Features
+
+- **Context-aware rounding** based on units (significant figures)
+- Optional **decimal scale rounding** (e.g. to integers)
+- Supports **unit forcing or removal** (`unit=°C`, `unit=.`)
+- Pre-rounding adjustments: `div=`, `mult=`, `skew=`
+- **SI unit conversion** (`si=true`): °F→°C, mph→km/h, etc.
+- Handles **date-time strings** (round time depth via `scale`)
+- Debug options like **flicker mode** and verbose logging
+
+---
+
+## 📦 Installation (openHAB)
+
+1. Install the **JavaScript Transformation** add-on in openHAB.
+2. Place `significant.js` into your transform folder:
+
+   ```bash
+   /etc/openhab/transform/significant.js
+   ```
+
+---
+
+## ⚙️ Usage
+
+### In an Item definition
 
 ```ini
-Number:Temperature My_Outside_Temp "My Temperature [%.1f %unit%]" {
-   channel="mqtt:topic:openhab:mine:temp" [profile="transform:JS",toItemScript="significant.js"]
-  }
-
-Number:Speed Zugspitze_WindSpeed "Zugspitze Windspeed [%.0f %unit%]"  {
-  channel="weathercompany:weather-observations:myaccount:zugspitze:currentWindSpeed" [profile="transform:JS",toItemScript="significant.js?precision=1.5"]
+Number:Temperature MyTemp "Temperature [%.1f %unit%]" {
+  channel="..."
+  [profile="transform:JS",toItemScript="JS:significant.js"]
 }
-```
-
----
-
-## Features
-
-- **Unit-aware rounding** (significant figures) for many openHAB UoM units
-- Optional **fixed decimal rounding** via `scale`
-- Optional **unit forcing / unit removal** (`unit=°C`, `unit=.`)
-- Optional **pre-scaling** before rounding:
-  - `div=...` (supports suffixes like `K`, `M`, `Mi`, `Gi`, …)
-  - `mult=...`
-  - `skew=...` (add offset before rounding)
-- Optional conversion to SI-friendly units when `si=true` (e.g., °F → °C, mph → km/h)
-- Special handling for **date-time strings** like `2025-09-27T14:16:28.000+0200` (rounds time depth using `scale`)
-- Optional **flicker mode** to add a tiny fraction (debugging / forcing updates)
-
----
-
-## Installation (openHAB)
-
-1. Ensure the **JavaScript Transformation** add-on is installed in openHAB.
-2. Copy `significant.js` into your openHAB transform directory:
-
-   - Typical path:
-     - `/etc/openhab/transform/significant.js`
-
----
-
-## Usage
-
-Use it like any JS transformation:
-
-### In an Item definition (example)
-
-```ini
-Number:Temperature MyTemp "Temperature [%.1f %unit%]" { channel="...", stateTransformation="JS:significant.js" }
 ```
 
 ### With query parameters
 
 ```ini
-stateTransformation="JS:significant.js?precision=3"
-stateTransformation="JS:significant.js?scale=0"
-stateTransformation="JS:significant.js?unit=°C&si=true"
-stateTransformation="JS:significant.js?div=1K"
+...
+[profile="transform:JS",toItemScript="JS:significant.js?precision=2.5&unit=°C&si=true"]
+...
 ```
 
-> The script reads parameters from the `?key=value&...` part of the transform call.
-
----
-    
-## Parameters
-
-All parameters are optional.
-
-| Parameter | Type | Meaning |
-|---|---:|---|
-| `precision` (or `prec`) | number | Number of **significant figures** to round to. Overrides unit defaults. Supports fractional steps like `1.5`. |
-| `scale` | number | Round to a **fixed number of decimal places** (e.g., `scale=0` → integers). |
-| `div` | number/string | Divide value before rounding. Supports suffixes like `1K`, `1M`, `1Mi`, `1Gi`, ... |
-| `mult` | number | Multiply value before rounding. |
-| `skew` | number | Add offset before rounding (after div/mult). Useful for “half-step” behavior. |
-| `unit` | string | Force output unit (e.g., `unit=°C`). Use `unit=.` to **remove** units. |
-| `si` | bool | Enable/disable conversions to SI-friendly units (default is `true` in the script logic). |
-| `verbose` | bool | Enable extra logging. |
-| `testing` | bool | Enable testing behavior / additional logs. |
-| `flicker` | bool | Adds a tiny random fraction to help distinguish successive values. |
-
-Boolean values accept: `t`, `true`, `1`, `yes`, `y`, `on` (case-insensitive).
+✅ Use the `?key=value` query string to control the behavior.
 
 ---
 
-## Examples
+## 🛠️ Parameters
 
-### 1) Force 3 significant figures
-```text
+| Parameter     | Type     | Description |
+|---------------|----------|-------------|
+| `precision`   | number   | Significant figures (e.g., `2`, `1.5`) |
+| `scale`       | number   | Decimal places (e.g., `scale=0` → whole numbers) |
+| `div`         | string   | Divide before rounding (`1K`, `1Mi`, etc.) |
+| `mult`        | number   | Multiply before rounding |
+| `skew`        | number   | Add offset before rounding (e.g. for midpoint rounding) |
+| `unit`        | string   | Force output unit (e.g. `°C`, or `.` to remove) |
+| `si`          | boolean  | Convert to SI units (default: `true`) |
+| `flicker`     | boolean  | Add tiny fraction to help state updates |
+| `verbose`     | boolean  | Enable debug logging |
+| `testing`     | boolean  | Enable testing mode |
+
+Booleans accept: `true`, `1`, `yes`, `on`, etc.
+
+---
+
+## 🧪 Examples
+
+### 1. Round to 3 significant figures
+
+```ini
 JS:significant.js?precision=3
 ```
 
-### 2) Always show integer output
-```text
+### 2. Show only whole numbers
+
+```ini
 JS:significant.js?scale=0
 ```
 
-### 3) Convert mph → km/h (if `si=true`) and round nicely
-```text
-JS:significant.js?si=true
+### 3. Convert mph to km/h
+
+```ini
+JS:significant.js?unit=km/h&si=true
 ```
 
-### 4) Divide first (useful if you can only apply one transform in openHAB)
-```text
-JS:significant.js?div=10
+### 4. Pre-scale the input by 1000
+
+```ini
 JS:significant.js?div=1K
-JS:significant.js?div=1Mi
 ```
 
-### 5) Remove any unit from the input
-```text
+### 5. Strip the unit
+
+```ini
 JS:significant.js?unit=.
 ```
 
-### 6) Date-time rounding by depth using `scale`
+### 6. Round a date-time string to minutes
 
-Input:
-```text
-2025-09-27T14:16:28.000+0200
-```
-
-Transform:
-```text
+```ini
 JS:significant.js?scale=2
 ```
 
-Effect (conceptually): keeps up to “minutes” precision, rounds deeper parts accordingly.
+Input: `2025-09-27T14:16:28.000+0200` → Rounds to `14:16`
 
 ---
 
-## Notes / Design
+## 📓 Design Notes
 
-- The script expects numeric inputs in a form openHAB commonly produces, e.g.:
-  - `"12.34"` or `"12.34 °C"` (unit after a space)
-- Unknown units fall back to a reasonable default (and may log a warning if verbose/testing is enabled).
-- Some conversions are intentionally “pragmatic” for dashboards (e.g., wind speed prefers `km/h` over `m/s`).
-
----
-
-## Development / Testing
-
-The file contains an (optional) CommonJS export block for Node.js unit testing, which is commented out for openHAB usage. If you want to unit test it in Node, you can temporarily enable that export.
+- Works best with inputs like `"12.34"` or `"12.34 °C"`
+- Unknown units fall back to sensible defaults
+- “Real-world” rules built in (e.g., round Hz near 50, pressure near 1000 mbar)
+- Fractional `precision` values allow halfway rounding (e.g., `1.5` gives x.5)
 
 ---
 
-## Contributing
+## 🧑‍💻 Development & Testing
 
-Issues and PRs are welcome—especially for:
-- Missing openHAB units
-- Better default precision rules for specific sensor types
-- Additional safe conversions
+The file contains a CommonJS export block (commented out) to allow optional **Node.js testing**. Uncomment it if you want to run unit tests outside of openHAB.
+
+---
+
+## 🤝 Contributing
+
+Pull requests and issues are welcome — especially for:
+
+- New openHAB units
+- Smarter default rules per sensor type
+- Additional SI conversions
 
 Please include:
-- example inputs (with units)
-- expected output
-- your openHAB version/runtime details
 
-## License
+- Example input/output
+- openHAB version/runtime
+- Expected behavior
+
+---
+
+## 📜 License
 
 GPL-3.0-or-later
