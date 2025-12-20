@@ -1,6 +1,17 @@
 // significant.js
-// This is a OpenHAB transformation script to reduce incoming values to a unit-dependant, typical number of significant figures
-// in the SI unit system plus some other features. It should support all known OpenHAB unit types.
+
+// Copyright (C) 2025 Stephen Heilbronner
+//
+// This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or // (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// significant.js is a OpenHAB transformation script to reduce incoming values to a unit-dependant, typical number of 
+// significant figures in the SI unit system plus some other features. It should support all known OpenHAB unit types.
 // It also covers some special cases for digit significance, e.g. values around 50Hz, or temperature close to the freezing point etc.
 
 // Script parameters (all are optional):
@@ -25,6 +36,7 @@ var alwaysLogFinal  = false; // if set to true, always log the final output of t
 var abs = Math.abs;
 var max = Math.max;
 var min = Math.min;
+var floor = Math.floor;
 
 /* All understood units should be according to: (uunits)
    https://www.openhab.org/docs/concepts/units-of-measurement.html:
@@ -567,12 +579,12 @@ function significantTransform(i, opts = {}) {
     if (unit_i === "°") {  // handle angle values specially
         // 0..360° only, round to 90°, 45°, 22.5° steps
         value = ((value % 360) + 360) % 360 // bring value into range [0..360)
-        angledivider = 90 / (Math.floor(precisionSeeked))
+        angledivider = 90 / floor(precisionSeeked)
         var v = roundTo(value / angledivider, 5) // round to 5 decimal places to avoid rounding errors
         if (precisionSeeked === 1 || precisionSeeked === 2) { // the sectors might be chosen differently....
-            newvalue = Math.floor(v + 0.5) * angledivider  // good for odd precisionSeeked (1=90°), more compass-like (2=45°)
+            newvalue = floor(v + 0.5) * angledivider  // good for odd precisionSeeked (1=90°), more compass-like (2=45°)
         } else {
-            newvalue = Math.floor(v) * angledivider  +  (angledivider/2)   // good for even precisionSeeked (2=45°, 4=22.5°)
+            newvalue = floor(v) * angledivider  +  (angledivider/2)   // good for even precisionSeeked (2=45°, 4=22.5°)
         }
         newvalue = (newvalue % 360)
         debugit(`Angle: v=${v}, value=${value}° (${compassAngleToDir(value,precisionSeeked)}), newvalue=${newvalue}° (${compassAngleToDir(value,precisionSeeked)}), anglediv=${angledivider} ${strVerb}`);
@@ -587,16 +599,16 @@ function significantTransform(i, opts = {}) {
         }
         // debugit(`DIV: divAsked=${divAsked}, SKEW: skewAsked=${skewAsked}, value=${value}, magnitude=${magnitude}, power=${power}, precisionSeeked=${precisionSeeked}, mult=${mult} ${strVerb}`);
 
-        const frac = (precisionSeeked - Math.floor(precisionSeeked)).toPrecision(1) // get the fractional part of precisionSeeked
+        const frac = (precisionSeeked - floor(precisionSeeked)).toPrecision(1) // get the fractional part of precisionSeeked
         debugit(`frac=${frac}, precisionSeeked=${precisionSeeked}`)
-        precisionSeeked = Math.floor(precisionSeeked)
+        precisionSeeked = floor(precisionSeeked)
         var mult = 1
         if (frac > 0) {
             mult = Math.ceil(1/frac); // x.5 -> 2, x.4 -> 3, x.3 -> 4, x.2 -> 5, x.1 -> 10
             // so x.5 makes mult=2, x.4 makes 3, x.3 makes 4, ... and
             debugit(`precisionSeeked=${precisionSeeked}, mult=${mult}`);
         }
-        magnitude = Math.floor(Math.log10(abs(value)))
+        magnitude = floor(Math.log10(abs(value)))
         power = Math.pow(10, precisionSeeked - magnitude - 1)
          // only for precisionSeeked equals 1
         if ( 1===0 && precisionSeeked === 1 && mult>1 ) {  // if only one significant figure is asked for, then lower values in the second figure are more significant
@@ -617,7 +629,7 @@ function significantTransform(i, opts = {}) {
                 [0, 0.1, 0.3, 0.5, 0.7, 1]
             ][mult-1] ;
 
-            var newvalue_1 = Math.floor( value * power )  // the 1 significant digit part....
+            var newvalue_1 = floor( value * power )  // the 1 significant digit part....
             var scaledRest = (power * (value - newvalue_1/power)).toFixed(3);
             debugit(`TESTING: magnitude=${magnitude}, power=${power}, scaledRest=${scaledRest}, newvalue_1=${newvalue_1}, value=${value}, mult=${mult}`);
             for (var index=0; aspired[index+1] < scaledRest; index++) {
@@ -766,7 +778,7 @@ function compassAngleToDir(deg,scale=2) {
     const dirs = directions[scale - 1]
     const step = 360 / dirs.length
     deg = ((deg % 360) + 360) % 360 // bring deg into range [0..360)
-    const index = Math.floor((deg + step / 2) / step) % dirs.length
+    const index = floor((deg + step / 2) / step) % dirs.length
     return dirs[index]
 }
 
