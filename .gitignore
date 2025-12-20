@@ -1,4 +1,7 @@
 # ignore all JS files...
 *.js
+*.txt
+*.map
+*.scale
 # ...except this one
 !significant.js
