@@ -368,13 +368,18 @@ function significantTransform(i, opts = {}) {
         // fallthrough to cm ...
     case "cm": // typical in precipitation
         value = value * 10
+        unit_i = "mm"
         // fallthrough to mm ...
     case "mm": // typical in precipitation
-        value = value * 0.001
         precisionSeeked = 2
-        // fallthrough to m ...
+        if (isBetween(value, [0, 80])) { // increase precision for less than 0.x m, probably precipitation       
+            precisionSeeked = 1.5
+        }
+        verboseAsked = true; // FIXME later: for testing purposes
+        logit(`${unit_i} hit: value=${value} ${unit_i} (ORIG: ${origvalue} ${origunit})  ${strVerb}`);
+        break;
     case "m": // typical for total precipitation
-        if (isBetween(value, 0, 0.08)) { // decrease precision for less than 0.08m, probably precipitation       
+        if (isBetween(value, [0, 0.08])) { // decrease precision for less than 0.08m, probably precipitation       
             precisionSeeked = 1.5
         } else if (origunit === "m") {
             precisionSeeked = 3 
@@ -412,13 +417,13 @@ function significantTransform(i, opts = {}) {
         // fallthrough to hPa ...
     case "hPa": // Pressure
         if (unit_i === "hPa") {
-            precisionSeeked = (isBetween(value, 1000, 1050) ? 4 : 3) + 0.3 // special case for typical sea level pressure around 1013 hPa
+            precisionSeeked = (isBetween(value, [1000, 1050]) ? 4 : 3) + 0.3 // special case for typical sea level pressure around 1013 hPa
             scaleSeeked = 1
         }
         break
     case "Pa":
         if (unit_i === "Pa") {
-            precisionSeeked = (isBetween(value, 100000, 105000) ? 4 : 3) + 0.3 // special case for typical sea level pressure around 101325 Pa
+            precisionSeeked = (isBetween(value, [100000, 105000]) ? 4 : 3) + 0.3 // special case for typical sea level pressure around 101325 Pa
             scaleSeeked = -1
         }
         break
@@ -438,7 +443,7 @@ function significantTransform(i, opts = {}) {
     case "rpm":
     case "Hz": // Frequency/Rotation
         precisionSeeked = 2
-        if (isBetween(value, 50 - 0.5, 50 + 0.5)) {
+        if (isBetween(value, [50-0.5, 50+0.5])) {
             precisionSeeked = 2.2 // special case for 50Hz power line frequency
         }
         break;
@@ -492,7 +497,7 @@ function significantTransform(i, opts = {}) {
     case "L/m":
     case "l/m":
         precisionSeeked = 2
-        if (isBetween(abs(value), 10, 300)) { // increase precision for gas pumps measuring small amounts of liters        
+        if (isBetween(value, [10, 300])) { // increase precision for gas pumps measuring small amounts of liters        
             precisionSeeked += 0.2
         }
         break
@@ -537,7 +542,9 @@ function significantTransform(i, opts = {}) {
         break;
 
     case "%": // Percent
-        precisionSeeked = isBetween(abs(value), 3, 87) ? 1.5 : 1.2 // be more precise closer to 0% or 100%
+        // verboseAsked = true; // FIXME later: for testing purposes
+        precisionSeeked = isBetween(value, [0, 4], [87, 101]) ? 1.2 : 1.5 // be more precise closer to 0% or 100%
+        logit(`Percent is hit: value=${value} ${unit_i} ${strVerb}`);
         break;
 
     case "°": // Angle
@@ -693,22 +700,29 @@ function significantTransform(i, opts = {}) {
 // helper functions
 // -------------------------
 
-function roundTo(value, digits = 0) {
+// roundTo(): round to a given number of digits after the decimal point
+function roundTo(value, digits = 0) { 
   const factor = 10 ** digits;
   return Math.round((value + Number.EPSILON) * factor) / factor;
 }
-
-function isBetween(x, min, max) {
-    return x >= min && x <= max;
+// isBetween(): check if value is between any of the given ranges (inclusive)
+function isBetween(value, ...ranges) { 
+  if (!Number.isFinite(value)) return false;
+  return ranges.some(([a, b]) => {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+    return value >= a && value <= b;
+  });
 }
 
+// isTrue(): interpret a given string as boolean true/false, and return the boolean value
 function isTrue(s) {
     if (typeof s === 'undefined' || s === null) return false
     if (s === true || s === false) return s   // handle booleans directly
     s = s.toString().toLowerCase().trim()
-    return (s === "t" || s === "true" || s === "yes" || s === "y" || s === "on") || s === "1"
+    return (s === "t" || s === "true" || s === "yes" || s === "y" || s === "on" || s === "1")
 }
 
+// consolelog(): log to console.log if available, otherwise use JS print()
 function consolelog(s) { // if console.log is not defined, use print
     if (typeof console !== 'undefined' && typeof console.log === 'function') {
         console.log(s.replace(/\s+/g, ' '))
@@ -717,7 +731,7 @@ function consolelog(s) { // if console.log is not defined, use print
     }
 }
 
-// for test and logging support:
+// logit(): log only, if verbose or debug is enabled
 function logit(s) {
     const now  = new Date()
     const hour = now.getHours()
@@ -729,7 +743,7 @@ function logit(s) {
     }
  }
 
-function logitmore(s) { // increased
+function logitmore(s) { // increased logging
     if (verboseIncreased || testingAsked) {
         logit(s)
     }
@@ -752,20 +766,22 @@ function testit(s) {
     }
  }
 
+// numOrUndef(): parse a number, then return it or undefined if it is not a valid finite number
 function numOrUndef(x) {
     const n = parseFloat(x);
     return Number.isFinite(n) ? n : undefined;
 }
 
-function setDefault(value, defaultValue) { // return defaultValue if it is given and not a function
+// setDefault(): return defaultValue if value is undefined; if defaultValue is a function, call it with the value
+function setDefault(value, defaultValue) { 
     if (typeof defaultValue === 'function') {
         return defaultValue(value)
     }
     return (value === undefined) ? defaultValue : value
 }
 
+// compassAngleToDir(): convert degrees to compass direction: N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW
 function compassAngleToDir(deg,scale=2) {
-    // Convert degrees to compass direction (N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW)
     // scale: 1=4 directions, 2=8 directions, 3=16 directions
     const directions = [
         ["N", "E", "S", "W"], // scale=1
@@ -783,7 +799,7 @@ function compassAngleToDir(deg,scale=2) {
 }
 
 // -----------------------------------------------------------------------------------------
-// openHAB wrapper: preserves transform usage; also lets us pass opts either via *query* or also as *injected vars*
+// openHAB wrapper: preserves transform usage; also lets us pass opts either via *query*, or also as *injected vars*
 // -----------------------------------------------------------------------------------------
 (function () {
   // Try to parse as query options (e.g. significant.js?precision=1.5&scale=1)
@@ -798,7 +814,7 @@ function compassAngleToDir(deg,scale=2) {
     });
   }
 
-  // Pick up injected globals (some transform profiles define them directly)
+  // Pick up any injected globals (some transform profiles define them directly)
   var injected = {};
   ['precision','prec','scale','unit','div','mult','skew','si','verbose','testing','flicker'].forEach(k => {
     if (typeof this[k] !== 'undefined') injected[k] = this[k];

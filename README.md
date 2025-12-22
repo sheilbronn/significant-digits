@@ -1,14 +1,14 @@
 # 🌡️ significant.js — Human-Friendly Sensor Values for openHAB
 
-**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a *real-world friendly format*. Think of it as a digital eye-roll at values like `6.234567 °C` — which becomes a clean `6.5 °C` or even `6 °C`, depending on context.
+**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on the context.
 
-It’s built for numeric state values from **weather**, **power**, **air quality**, or other sensors, smoothing out meaningless fluctuations while respecting physical reality.
+It’s built for numeric state values from **weather**, **power**, **air quality**, and many other sensors, smoothing out meaningless fluctuations while respecting physical reality.
 
 🧠 Smart enough to:
 
-- Handle typical units (°C, m/s, W, …)
+- Handle all OpenHAB units (°C, m/s, W, mph, hPa, …)
 - Reduce irrelevant "flicker"
-- Convert between units (e.g., °F → °C, mph → km/h)
+- Convert between units (e.g., °F → °C, mph → km/h, in → cm, …)
 - Special-case real-world patterns (e.g., 1000 mbar pressure)
 
 ---
@@ -28,7 +28,7 @@ It’s built for numeric state values from **weather**, **power**, **air quality
 ## 📦 Installation (openHAB)
 
 1. Install the **JavaScript Transformation** add-on in openHAB.
-2. Place `significant.js` into your transform folder:
+2. Place `significant.js` into your transform folder - usually:
 
    ```bash
    /etc/openhab/transform/significant.js
@@ -42,7 +42,7 @@ It’s built for numeric state values from **weather**, **power**, **air quality
 
 ```ini
 Number:Temperature MyTemp "Temperature [%.1f %unit%]" {
-  channel="..."
+  channel="…"
   [profile="transform:JS",toItemScript="JS:significant.js"]
 }
 ```
@@ -74,7 +74,7 @@ Number:Temperature MyTemp "Temperature [%.1f %unit%]" {
 | `verbose`     | boolean  | Enable debug logging |
 | `testing`     | boolean  | Enable testing mode |
 
-Booleans accept: `true`, `1`, `yes`, `on`, etc.
+Booleans accepts: `true`, `t`, `1`, `yes`, `y`, `on` for **true**, and everything else for **false**.
 
 ---
 
@@ -126,6 +126,7 @@ Input: `2025-09-27T14:16:28.000+0200` → Rounds to `14:16`
 - Unknown units fall back to sensible defaults
 - “Real-world” rules built in (e.g., round Hz near 50, pressure near 1000 mbar)
 - Fractional `precision` values allow halfway rounding (e.g., `1.5` gives x.5)
+- Might work on openHAB 4.X, too - not tested.
 
 ---
 
