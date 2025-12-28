@@ -2,14 +2,14 @@
 
 **significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on the context.
 
-It’s built for numeric state values from **weather**, **power**, **air quality**, and many other sensors, smoothing out meaningless fluctuations while respecting physical reality.
+It’s built for numeric state values such as from **weather**, **power**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality.
 
 🧠 Smart enough to:
 
-- Handle all OpenHAB units (°C, m/s, W, mph, hPa, …)
+- Handle all known OpenHAB units (°C, m/s, W, mph, hPa, … → see [list of UoM's](https://www.openhab.org/docs/concepts/units-of-measurement.html))
 - Reduce irrelevant "flicker"
 - Convert between units (e.g., °F → °C, mph → km/h, in → cm, …)
-- Special-case real-world patterns (e.g., 1000 mbar pressure)
+- Special-case around important real-world values (e.g., 1000 mbar pressures, 50 Hz, 220 V, ...)
 
 ---
 
@@ -20,14 +20,15 @@ It’s built for numeric state values from **weather**, **power**, **air quality
 - Supports **unit forcing or removal** (`unit=°C`, `unit=.`)
 - Pre-rounding adjustments: `div=`, `mult=`, `skew=`
 - **SI unit conversion** (`si=true`): °F→°C, mph→km/h, etc.
-- Handles **date-time strings** (round time depth via `scale`)
+- Handles **date-time strings** (with `scale=0` for full days (1=hours, 2=minutes, 3=seconds, and 4=milliseconds)
+- Converts **textual intervals** to numbers ( "1-2" → 1.5, "3-5" → 4, as needed for e.g. [dwdpollen](https://www.openhab.org/addons/bindings/dwdpollenflug)
 - Debug options like **flicker mode** and verbose logging
 
 ---
 
 ## 📦 Installation (openHAB)
 
-1. Install the **JavaScript Transformation** add-on in openHAB.
+1. Install the [**JavaScript Automation**](https://192.168.178.76:8443/addons/automation/automation-jsscripting) add-on in openHAB.
 2. Place `significant.js` into your transform folder - usually:
 
    ```bash
@@ -63,18 +64,18 @@ Number:Temperature MyTemp "Temperature [%.1f %unit%]" {
 
 | Parameter     | Type     | Description |
 |---------------|----------|-------------|
-| `precision`   | number   | Significant figures (e.g., `2`, `1.5`) |
-| `scale`       | number   | Decimal places (e.g., `scale=0` → whole numbers) |
-| `div`         | string   | Divide before rounding (`1K`, `1Mi`, etc.) |
-| `mult`        | number   | Multiply before rounding |
+| `precision`   | number   | Forced number of significant figures (e.g., `2`) (With fractions, e.g. 2.7 for rounding to nm.0, nm.3, nm.7 n(m+1).0) |
+| `scale`       | number   | Forced number of max. decimal places (e.g., `scale=0` → whole numbers) |
+| `div`         | string   | Divide by number before rounding (`1K`, `1Mi`, etc.) |
+| `mult`        | number   | Multiply by number before rounding |
 | `skew`        | number   | Add offset before rounding (e.g. for midpoint rounding) |
-| `unit`        | string   | Force output unit (e.g. `°C`, or `.` to remove) |
+| `unit`        | string   | Force output unit (e.g. `°C`, or `.` to remove any) |
 | `si`          | boolean  | Convert to SI units (default: `true`) |
-| `flicker`     | boolean  | Add tiny fraction to help state updates |
+| `flicker`     | boolean  | Add a tiny fraction to encourage state updates for debugging |
 | `verbose`     | boolean  | Enable debug logging |
 | `testing`     | boolean  | Enable testing mode |
 
-Booleans accepts: `true`, `t`, `1`, `yes`, `y`, `on` for **true**, and everything else for **false**.
+Valid Booleans are: `true`, `t`, `1`, `yes`, `y`, `on` for **true**, and everything else for **false**.
 
 ---
 
@@ -92,10 +93,10 @@ JS:significant.js?precision=3
 JS:significant.js?scale=0
 ```
 
-### 3. Convert mph to km/h
+### 3. Mark incoming values with the unit °C (e.g. for MQTT temperature sensors)
 
 ```ini
-JS:significant.js?unit=km/h&si=true
+JS:significant.js?unit=°C
 ```
 
 ### 4. Pre-scale the input by 1000
@@ -104,7 +105,7 @@ JS:significant.js?unit=km/h&si=true
 JS:significant.js?div=1K
 ```
 
-### 5. Strip the unit
+### 5. Strip any unit
 
 ```ini
 JS:significant.js?unit=.
@@ -123,10 +124,10 @@ Input: `2025-09-27T14:16:28.000+0200` → Rounds to `14:16`
 ## 📓 Design Notes
 
 - Works best with inputs like `"12.34"` or `"12.34 °C"`
-- Unknown units fall back to sensible defaults
-- “Real-world” rules built in (e.g., round Hz near 50, pressure near 1000 mbar)
+- Precision count falls back to sensible defaults; three digits for a missing unit
+- Higher default precision around important real-world values, e.g. 50 Hz, 980 mbar, 0 °C etc.
 - Fractional `precision` values allow halfway rounding (e.g., `1.5` gives x.5)
-- Might work on openHAB 4.X, too - not tested.
+- This script might work on openHAB 4.X, too - haven't tried - feedback welcome!
 
 ---
 

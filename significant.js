@@ -10,7 +10,7 @@
 //
 // You should have received a copy of the GNU General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// significant.js is a OpenHAB transformation script to reduce incoming values to a unit-dependant, typical number of 
+// significant.js is a OpenHAB transformation script to reduce incoming values to a unit-dependant, typical number of
 // significant figures in the SI unit system plus some other features. It should support all known OpenHAB unit types.
 // It also covers some special cases for digit significance, e.g. values around 50Hz, or temperature close to the freezing point etc.
 
@@ -31,7 +31,7 @@ var flickerEnabled = false // if default set to true here, output will always ha
 
 var verboseIncreased = false; // if true and verbose is true, then log even more details
 var scriptname = "significant.js: "; // will hold the script name for logging
-var alwaysLogFinal  = false; // if set to true, always log the final output of the transformation
+var alwaysLogFinal  = false; // if set to true, always log the final output of the transformation (set to true for first timers!)
 
 var abs = Math.abs;
 var max = Math.max;
@@ -69,13 +69,13 @@ Speed: m/s, km/h, mph, kn
 Temperature: K, °C, °F, color-temp: mired / MK⁻¹ (aka mirek)
 Time: s, min, h, d, week, y
 Volume: l, m³, gal (US)
-Volumetric flow: l/min, m³/s, m³/min, m³/h, m³/d, gal/min. 
+Volumetric flow: l/min, m³/s, m³/min, m³/h, m³/d, gal/min.
 
 Imperial base symbols (also understood):
-in, ft, yd, ch, fur, mi, lea, gr (mass), inHg, psi, mph, °F, gal (US), gal/min. 
+in, ft, yd, ch, fur, mi, lea, gr (mass), inHg, psi, mph, °F, gal (US), gal/min.
 
 Prefixes:
-All metric prefixes (mA, cm, kW, …) and binary prefixes (kiB, MiB, …) are supported—just prepend the symbol. 
+All metric prefixes (mA, cm, kW, …) and binary prefixes (kiB, MiB, …) are supported—just prepend the symbol.
 */
 
 // Main function called by OpenHAB when the transformation is invoked:
@@ -194,9 +194,9 @@ function significantTransform(i, opts = {}) {
 
             // guard zero (and NaN), regardless of suffix outcome
             if (!Number.isFinite(divAsked) || divAsked === 0) {
-                warnit(`DIV is invalid or 0; ignoring to avoid division by zero.`);
+                warnit(`DIV value is invalid or 0; ignoring it to avoid division by zero.`);
                 divAsked = undefined;
-            }            
+            }
         } else {
             logit(`Bad div format: "${div}"`);
         }
@@ -210,7 +210,6 @@ function significantTransform(i, opts = {}) {
     if (typeof unit !== 'undefined') {
         // debugit(` UNIT=${unit}, TYPEOF unit=${(typeof unit)}`);
         unitAsked = unit;
-        if (unitAsked === "." ) { unitAsked="" ; }
         strVerb += " UNIT=" + unitAsked
     }
     if (typeof flicker !== 'undefined') {
@@ -236,7 +235,7 @@ function significantTransform(i, opts = {}) {
         // parse the offset +HHMM / -HHMM to minutes
         const offsetMinutes = (tzoff[0] === '-' ? -1 : 1) * (parseInt(tzoff.slice(1, 3), 10) * 60 + parseInt(tzoff.slice(3, 5), 10))
 
-        // default levels: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
+        // default scale levels: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
         let level = setDefault(scaleAsked, 3)        // your "scale" concept: how deep to include
         level = max(0, min(4, (level|0)))  // clamp to [0..4]
 
@@ -266,20 +265,27 @@ function significantTransform(i, opts = {}) {
 
         logit(`Input becomes ${out} ${strVerb}`);
         return out // early return with the transformed date-time string
-    }    
-
-    var value = parseFloat(input); // parse the value and unit from the input string:
-    if (isNaN(value)) {
-        logit(`input="${input}" is NaN.`)
-        return input // take an early exit for non-numeric values and return the input as is.
     }
 
-    matches = input.match(/\s+(.*)$/)
-    if (matches) {
-        unit_i = matches[1] // if the input contains a space consider the stuff behind the space as the unit.
+    // Now, parse the value from the input value (and the unit if any):
+    var value = parseFloat(input);
+    if (isNaN(value)) { // check for special cases of NaN or non-numeric input, such as "0-1", "1-2", etc.
+        matches = input.match(/(\d)-(\d)/) // special case for ranges like "0-1", "1-2", "2-3"
+        if (!matches) {
+            logit(`input="${input}" is NaN.`)
+            return input // take an early exit for MaN non-numeric values, and return the whole input as is.
+        }
+        // treat special cases "0-1", "1-2", "2-3" as midpoints, e.g. as from https://www.openhab.org/addons/bindings/dwdpollenflug
+        value = (parseInt(matches[1]) + parseInt(matches[2])) / 2.0  // ... and no unit.
+        logit(`input="${input}" treated as midpoint value ${value}.`)
+    } else {
+        matches = input.match(/\s+(.*)$/) // if the input contains a space: consider the stuff behind the space to be the unit.
+        if (matches) {
+            unit_i = matches[1]
+        }
     }
 
-    var   origvalue = value  // preserve the original value and unit for later logging and comparison
+    var   origvalue = value  // preserve original value and original unit for later logging and comparison
     const origunit  = unit_i
     var   newvalue  = 0
 
@@ -291,7 +297,7 @@ function significantTransform(i, opts = {}) {
     }
 
     // determine the number of significant figures of the input value (i.e. those before AND after the decimal point)
-    const parts = (value>0?value:-value).toString().split(".")
+    const parts = abs(value).toString().split(".")
     var precisionFound = parts[0].length
     if (parts.length > 1 ) {
         precisionFound += parts[1].length
@@ -307,31 +313,42 @@ function significantTransform(i, opts = {}) {
             default:
                 break
         }
-        logit(`unit: "${unit_i}" > "${unitAsked}" ${strVerb}`);
-        unit_i = unitAsked // ignore the unit from input i and take the forced unit
+        if (unit_i !== null && unit_i !== "" ) {
+            logit(`unit: "${unit_i}" > "${unitAsked}"  ${strVerb}`);
+        }
+        if (unitAsked === "." ) { unitAsked="" ; }
+        unit_i = unitAsked // ignore unit coming from input i and take this forced unit
     }
 
     switch (unit_i) {  // modify precision defaults depending on the unit coming in or asked for (uunits)
-    case "K": // Temperature 
-        precisionSeeked = (abs(value) < 10) ? 1.5 : 2.5
-        logit(`Kelvin is hit: value=${value} ${unit_i} ${strVerb}`);
+    case "K": // Temperature
+        precisionSeeked =  floor(Math.log10(max(value, 0.1))) // more significant figures for higher temperatures
+        precisionSeeked =  max(1, min(3, precisionSeeked)) // clamp to 1..3
+        // special cases around freezing and boiling point of water:
+        precisionSeeked += isBetween(value, [0, 10], [273, 2], [273+98, 3]) ? 0.7 : 0
+        logit(`Kelvin is hit: value=${value} ${unit_i} precSeeked=${precisionSeeked} ${strVerb}`);
         break;
-    case "°F": 
-        if (siAsked) {
-            value = (value - 32) * 5 / 9
-            unit_i = "°C"
+    case "°F":
+        if (!siAsked) {
+            precisionSeeked = (abs(value) < 3) ? 1.3 : isBetween(value, [190, 215]) ? 3 : 2.5
+            break
         }
-        // fallthrough to Celsius ...
+        value = (value - 32) * 5 / 9
+        unit_i = "°C"
+        // fallthrough to Celsius, not modifying the unit_i if siAsked is false
     case "°C":
-        precisionSeeked = (abs(value) < 1) ? 0.5 : (abs(value) < 10) ? 1.5 : 2.5
+        precisionSeeked = (abs(value) < 1) ? 0.7 : (abs(value) < 10) ? 1.5 : 2.5
+        if (abs(value) < 1.2) {
+            // logit(`Celsius is hit: value=${value} ${unit_i} precSeeked=${precisionSeeked} ${strVerb}`);
+        }
         break;
 
     // Speed
     case "kn":
-        value = value * 1.150779448
+        value = value * 1.15 // exact factor: 1 kn = 1.150779448 mph
         unit_i = "mph"
         // fallthrough to mph ...
-    case "mph":    
+    case "mph":
         precisionSeeked = (abs(value) < 10) ? 1.5 : (abs(value) < 30) ? 1.3 : 1.5
         scaleSeeked = 0
         if (siAsked) {
@@ -355,13 +372,17 @@ function significantTransform(i, opts = {}) {
         break;
 
     // Length, Distance, and precipitation
+    case "yd":
+        value = value * 3
+        unit_i = "ft"
+        // fallthrough to ft ...
     case "ft":
         value = value * 12
         // fallthrough to in ...
-    case "in": 
+    case "in":
         unit_i = "in"
-        precisionSeeked = 2
         if (! siAsked) {
+            precisionSeeked = 2
             break
         }
         value = value * 2.54
@@ -372,66 +393,105 @@ function significantTransform(i, opts = {}) {
         // fallthrough to mm ...
     case "mm": // typical in precipitation
         precisionSeeked = 2
-        if (isBetween(value, [0, 80])) { // increase precision for less than 0.x m, probably precipitation       
+        if (isBetween(value, [0, 80])) { // increase precision for less than 0.x m, probably precipitation
             precisionSeeked = 1.5
         }
-        verboseAsked = true; // FIXME later: for testing purposes
         logit(`${unit_i} hit: value=${value} ${unit_i} (ORIG: ${origvalue} ${origunit})  ${strVerb}`);
         break;
     case "m": // typical for total precipitation
-        if (isBetween(value, [0, 0.08])) { // decrease precision for less than 0.08m, probably precipitation       
+        if (isBetween(value, [0, 0.08])) { // decrease precision for less than 0.08m, probably precipitation
             precisionSeeked = 1.5
         } else if (origunit === "m") {
-            precisionSeeked = 3 
+            precisionSeeked = 3
         }
         unit_i = "m"
-        verboseAsked = true; // FIXME later: for testing purposes
         logit(`${unit_i} hit: value=${value} ${unit_i} (ORIG: ${origvalue} ${origunit})  ${strVerb}`);
         break;
 
-    case "h": 
+    // Durations:
+    case "h":
         precisionSeeked = 99
-        break    
+        break
     case "min": // Time
         precisionSeeked = 4
-        break    
+        break
     case "s":
-        if (abs(value)<1000) {
-            precisionSeeked = (abs(value) <= 3) ? 1 : (abs(value) <= 10) ? 0.5 : 1.5
+        abs_value = abs(value)
+        if (abs_value<1000) {
+            precisionSeeked = (abs_value<4) ? 1 : (abs_value<10) ? 0.7 : 1.5
         } else {
             precisionSeeked = 99
             scaleSeeked = -2
         }
-        break;
-    case "lbs":    // Weight
-        if (siAsked) {
-            value = value * 0.45359237
-            unit_i = "kg"
-        }
-        break;
-
-    // Pressure: Pa, hPa, mmHg, bar, psi, inHg
-    case "inHg":
-        value = value * 33.863886666667
-        unit_i = "hPa"
-        // fallthrough to hPa ...
-    case "hPa": // Pressure
-        if (unit_i === "hPa") {
-            precisionSeeked = (isBetween(value, [1000, 1050]) ? 4 : 3) + 0.3 // special case for typical sea level pressure around 1013 hPa
-            scaleSeeked = 1
-        }
         break
-    case "Pa":
-        if (unit_i === "Pa") {
-            precisionSeeked = (isBetween(value, [100000, 105000]) ? 4 : 3) + 0.3 // special case for typical sea level pressure around 101325 Pa
-            scaleSeeked = -1
+
+    // Weights:
+    case "lbs":
+        abs_value = abs(value)
+        if (! siAsked) {
+            precisionSeeked = (abs_value < 10) ? 1.8 : (abs_value < 100) ? 2.8 : (abs_value < 400) ? 3.8 : 3
+            break
         }
+        value = value * 0.4536  // exact factor: 1 lb = 0.45359237 kg
+        unit_i = "kg"
+        // fallthrough to kg ...
+    case "kg":    // Weight
+        abs_value = abs(value)
+        precisionSeeked = (abs_value < 10) ? 1.8 : (abs_value < 100) ? 2.8 : (abs_value < 200) ? 3.8 : 3
+        scaleSeeked = 1
+        break
+
+    // Pressure units: Pa, hPa, mmHg, mbar, psi, inHg, bar,
+    case "psi":
+    case "inHg":
+    case "mmHg":
+        if (! siAsked) {
+            switch (unit_i) {
+            case "psi":
+                precisionSeeked = isBetween(value, [14.7, 0.7]) ? 3.5 : 3 // special case for typical atmospheric pressure around 14.7 psi
+                break
+            case "inHg":
+                precisionSeeked = isBetween(value, [30, 1.5]) ? 3.5 : 3 // special case for typical pressure around 30 inHg
+                break
+            case "mmHg":
+                precisionSeeked = isBetween(value, [750, 770]) ? 3.5 : 3 // special case for typical pressure around 760 mmHg
+                break
+            default:
+                precisionSeeked = 3
+                break
+            }
+            break
+        }
+        // convert to SI and fallthrough to hPa ...
+    case "mbar":
+    case "hPa": // Pressure
+        switch (unit_i) {
+        case "psi": // psi -> hPa
+            value = value * 68.94757 // exact factor: 1 psi = 6894.757293168 Pa
+            unit_i = "hPa"
+            break
+        case "inHg": // inHg -> hPa
+            value = value * 33.86386 // exact factor: 1 inHg = 33.86388157895 hPa
+            unit_i = "hPa"
+            break
+        case "mmHg": // mmHg -> hPa
+            value = value * 1.33322 // exact factor: 1 mmHg = 1.3332236842105263 hPa
+            unit_i = "hPa"
+            break
+        }
+        precisionSeeked = isBetween(value, [800, 1000])     ? 3.5 : isBetween(value, [1000, 1050]) ? 4.5 : 3 // special case for typical pressure around 1000 hPa
+        break
+    case "Pa": // Pressure
+        precisionSeeked = isBetween(value, [80000, 100000]) ? 3.5 : isBetween(value, [100000, 105000]) ? 4.5 : 3 // special case for typical pressure around 100000 Pa
+        break
+    case "bar":
+        precisionSeeked = isBetween(value, [0.8, 1])        ? 3.5 : isBetween(value, [1, 1.05]) ? 4.5 : 3 // special case for typical pressure around 1 bar
         break
 
     // Power, Energy
     case "Wh":
     case "VAh":
-    case "kWh": 
+    case "kWh":
         scaleSeeked = 1
         break
 
@@ -442,10 +502,7 @@ function significantTransform(i, opts = {}) {
 
     case "rpm":
     case "Hz": // Frequency/Rotation
-        precisionSeeked = 2
-        if (isBetween(value, [50-0.5, 50+0.5])) {
-            precisionSeeked = 2.2 // special case for 50Hz power line frequency
-        }
+        precisionSeeked = isBetween(value, [50, 0.3], [60, 0.2], [400, 10]) ? 2.8 : 2 // special case for power line frequency
         break;
 
     // Electric: V, A, mA, F, C, Ah, S, S/m, H, Ω
@@ -466,62 +523,68 @@ function significantTransform(i, opts = {}) {
         precisionSeeked = 2
         break
 
-    case "W":
+    case "W": // Power
     case "kW":
     case "MW":
-    case "dBm": // Power
+    case "dBm":
         precisionSeeked = (abs(value) < 100) ? 1.5 : 2
         break
 
-    case "W/m²":
-    case "µW/cm²":        
+    case "W/m²": // Irradiance/Intensity
+    case "µW/cm²":
         precisionSeeked = (abs(value) < 10) ? 1 : 2
         break
 
     case "V": // Voltage
-        precisionSeeked = 2.3
+        precisionSeeked = isBetween(value, [110, 5], [222, 12]) ? 2.8 : 2.7
         break;
 
     // Volume: l, m³, gal (US)
     // Volumetric flow: l/min, m³/s, m³/min, m³/h, m³/d, gal/min. :
-    case "gal": 
-        if (siAsked) {
-            value = value * 3.78541
-            unit_i = "L"
+    case "gal":
+    case "gal/min":
+        if (! siAsked) {
+            precisionSeeked = 2.8
+            break
         }
+        value = value * 3.7854 // exact factor: 1 gal (US) = 3.785411784 liters
+        unit_i = unit_i.replace("gal", "l")
         // fallthrough to liters ...
-    case "L":
     case "l":
-    case "L/min":
     case "l/min":
-    case "L/m":
-    case "l/m":
-        precisionSeeked = 2
-        if (isBetween(value, [10, 300])) { // increase precision for gas pumps measuring small amounts of liters        
-            precisionSeeked += 0.2
+    case "m³":
+    case "m³/s":
+    case "m³/min":
+    case "m³/h":
+    case "m³/d":
+        if (unit_i==="l" && isBetween(value, [0.008, 300])) {
+            precisionSeeked = 3 // increase precision, e.g. for gas pumps
+        } else {
+            precisionSeeked = 2.8
         }
         break
 
-    // Long distances:
-    case "mi":
+    case "mi": // Long distances
         if (siAsked) {
-            value = value * 1.609344
+            value = value * 1.61 // exact factor: 1 mi = 1.609344 km
             unit_i = "km"
         }
         // fallthrough to kilometers ...
     case "km":
-        precisionSeeked = 2.5
+        precisionSeeked = 2.5 // use same default for mi and km
         break;
-    
-    case "mg/m³": // Typically for air quality:
+
+    case "mg/m³": // Typically air quality
     case "µg/m³":
         precisionSeeked = 2.5
         break;
 
-    case "Mbit/s": // Memory sizes and data rates
+    case "Mbit/s": // Data rates
     case "kbit/s":
     case "bit/s":
-    case "Mbit":
+        precisionSeeked = 2
+        break;
+    case "Mbit": // Memory sizes
     case "kbit":
     case "bit":
     case "TiB":
@@ -543,8 +606,8 @@ function significantTransform(i, opts = {}) {
 
     case "%": // Percent
         // verboseAsked = true; // FIXME later: for testing purposes
-        precisionSeeked = isBetween(value, [0, 4], [87, 101]) ? 1.2 : 1.5 // be more precise closer to 0% or 100%
-        logit(`Percent is hit: value=${value} ${unit_i} ${strVerb}`);
+        precisionSeeked = isBetween(value, [0, 4], [87, 102]) ? 1.2 : 1.5 // be more precise closer to 0% or to 100%
+        // logit(`Percent is hit: value=${value} ${unit_i}   ${strVerb}`);
         break;
 
     case "°": // Angle
@@ -568,7 +631,7 @@ function significantTransform(i, opts = {}) {
         if (precisionAsked === 0) {
             warnit(`precisionAsked===0, ignoring it.`);
         } else {
-            precisionSeeked = 0 + precisionAsked; // if precisionAsked was explicitly given, use it as the number of significant figures to round to instead of the unit-specific default
+            precisionSeeked = 0.0 + precisionAsked; // if precisionAsked was explicitly given, use it as the number of significant figures to round to instead of the unit-specific default
         }
     }
     if (scaleAsked !== undefined) {
@@ -606,54 +669,19 @@ function significantTransform(i, opts = {}) {
         }
         // debugit(`DIV: divAsked=${divAsked}, SKEW: skewAsked=${skewAsked}, value=${value}, magnitude=${magnitude}, power=${power}, precisionSeeked=${precisionSeeked}, mult=${mult} ${strVerb}`);
 
-        const frac = (precisionSeeked - floor(precisionSeeked)).toPrecision(1) // get the fractional part of precisionSeeked
-        debugit(`frac=${frac}, precisionSeeked=${precisionSeeked}`)
+        var frac = (precisionSeeked - floor(precisionSeeked)).toPrecision(1) // split off the fractional part from precisionSeeked (1 digit)
         precisionSeeked = floor(precisionSeeked)
+        debugit(`frac=${frac}, precisionSeeked=${precisionSeeked}`)
         var mult = 1
         if (frac > 0) {
-            mult = Math.ceil(1/frac); // x.5 -> 2, x.4 -> 3, x.3 -> 4, x.2 -> 5, x.1 -> 10
+            frac = (frac>0.5) ? (1-frac) : frac // make symmetric: 0.6 -> 0.4, 0.7 -> 0.3 ...
+            mult = Math.ceil(1/frac); // x.5 -> 2, x.4 -> 3, x.3 -> 4, x.2 -> 5, x.1 -> 10 ;; x.6 -> 3, x.7 -> 4, x.8 -> 5, x.9 -> 10
             // so x.5 makes mult=2, x.4 makes 3, x.3 makes 4, ... and
             debugit(`precisionSeeked=${precisionSeeked}, mult=${mult}`);
         }
         magnitude = floor(Math.log10(abs(value)))
         power = Math.pow(10, precisionSeeked - magnitude - 1)
-         // only for precisionSeeked equals 1
-        if ( 1===0 && precisionSeeked === 1 && mult>1 ) {  // if only one significant figure is asked for, then lower values in the second figure are more significant
-            // FIXME: might get rid of these special cases and use the general approach below for all cases....
-
-            // use better (smaller) boundaries for lower values
-            // 0.5 -> 2 (0;0.5)
-            // 0.4 -> 3 (0;0.3;0.6) -> resulting borders : 0.15;0,45;0.80
-            // 0.3 -> 4 (0;0.2;0.4;0.7) -> resulting borders : 0.1;0.3;0.55;0.85
-            // 0.2 -> 5 (0;0.1;0.3;0.5;0.7) -> resulting borders : 0.05;0.2;0.4;0.6;0.85
-            // 0.1 -> 10
-            // for testing: for i in 0 $(seq 0 1 9) ; do mp "mqtt/test" "0.${i}" ; mp "mqtt/test" "0.${i}5" ; done
-            var aspired = [
-                [0, 1],
-                [0, 0.5, 1],
-                [0, 0.3, 0.6, 1],
-                [0, 0.2, 0.4, 0.7, 1],
-                [0, 0.1, 0.3, 0.5, 0.7, 1]
-            ][mult-1] ;
-
-            var newvalue_1 = floor( value * power )  // the 1 significant digit part....
-            var scaledRest = (power * (value - newvalue_1/power)).toFixed(3);
-            debugit(`TESTING: magnitude=${magnitude}, power=${power}, scaledRest=${scaledRest}, newvalue_1=${newvalue_1}, value=${value}, mult=${mult}`);
-            for (var index=0; aspired[index+1] < scaledRest; index++) {
-                // iterate over the aspired until the scaledRest is between aspired[index] and aspired[index+1]
-                // testit(`LOOKING: index=${index}, aspired[index]=${aspired[index]}, scaledRest=${scaledRest} ${strVerb}`);
-            }
-            if ( scaledRest - aspired[index] > aspired[index+1] - scaledRest ) {
-                // round up to the higher aspired value
-                index++
-            }
-            debugit(`FOUND for ${scaledRest}: index=${index}, aspired[index]=${aspired[index]}, power=10, newvalue_1=${newvalue_1}`);
-            newvalue = (newvalue_1 + aspired[index]) / power;
-            newvalue = parseFloat(newvalue.toPrecision(2)); // needed to deal with problems from binary arithmetic
-        } else {
-            // don't prefer closer aspired for lower values for more significant figures
-            newvalue = Math.round(value * power * mult) / mult / power
-        }
+        newvalue = Math.round(value * power * mult) / mult / power
     }
 
     newvalue += (testingAsked ? 0.00000003 : 0) // add a very small value to avoid rounding errors in the next step
@@ -680,8 +708,8 @@ function significantTransform(i, opts = {}) {
     var logMsg = `${origvalue} ${origunit} (${precisionFound}) > ${parseFloat(value.toPrecision(8))} ${unit_i} > ${newvalue} ${unit_i} (${precisionSeeked}/${targetPrecisionSeeked}${scaleSeeked===undefined ? "" : " scale=" + scaleSeeked}) + ${strVerb}`;
     const wasLogged = logit(`FINAL: ${logMsg}`);
     if (!wasLogged && alwaysLogFinal) {
-        consolelog(`SIGNIF: ${logMsg}`);
-    }    
+        consolelog(`SIGNIFICANT: ${logMsg}`);
+    }
 
     const now = new Date()
     if (testingAsked && now.getSeconds() % 5 === 0) {
@@ -690,10 +718,11 @@ function significantTransform(i, opts = {}) {
     }
     if (flickerEnabled) {
         const denom = (typeof power === "number" && isFinite(power) && power !== 0) ? power : 1
-        const flickerval = Math.random().toFixed(1) / denom * 0.00001
-        return `${newvalue + flickerval}${unit_i ? ` ${unit_i}` : ""}`
+        const flickerAmount = Math.random().toFixed(2) / denom * 0.0001
+        logit(`FLICKER: denom=${denom}, flickerAmount=${flickerAmount}: origvalue=${origvalue} ${origunit} -> newvalue=${newvalue} ${unit_i} ${strVerb}`);
+        newvalue += flickerAmount
     }
-    return `${newvalue}${unit_i ? ` ${unit_i}` : ""}` 
+    return `${newvalue}${unit_i ? ` ${unit_i}` : ""}`
 }
 
 // -------------------------
@@ -701,17 +730,21 @@ function significantTransform(i, opts = {}) {
 // -------------------------
 
 // roundTo(): round to a given number of digits after the decimal point
-function roundTo(value, digits = 0) { 
-  const factor = 10 ** digits;
-  return Math.round((value + Number.EPSILON) * factor) / factor;
+function roundTo(value, digits = 0) {
+    const factor = 10 ** digits;
+    return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 // isBetween(): check if value is between any of the given ranges (inclusive)
-function isBetween(value, ...ranges) { 
-  if (!Number.isFinite(value)) return false;
-  return ranges.some(([a, b]) => {
-    if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-    return value >= a && value <= b;
-  });
+function isBetween(value, ...ranges) {
+    if (!Number.isFinite(value)) return false;
+    return ranges.some(([a, b]) => {
+        if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+        if (b>=a) {
+            return a <= value && value <= b; // range is [max, min]
+        } else {
+            return a-b <= value && value <= a+b; // range is [center - halfwidth, center + halfwidth]
+        }
+    });
 }
 
 // isTrue(): interpret a given string as boolean true/false, and return the boolean value
@@ -773,7 +806,7 @@ function numOrUndef(x) {
 }
 
 // setDefault(): return defaultValue if value is undefined; if defaultValue is a function, call it with the value
-function setDefault(value, defaultValue) { 
+function setDefault(value, defaultValue) {
     if (typeof defaultValue === 'function') {
         return defaultValue(value)
     }
