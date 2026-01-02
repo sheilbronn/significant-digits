@@ -32,7 +32,7 @@ var flickerEnabled = false; // if default set to true here, output will always h
 var verboseIncreased = false; // if true and verbose is true, then log even more details
 var scriptname = "significant.js: "; // will hold the script name for logging
 var alwaysLogFinal  = false; // if set to true, always log the final output of the transformation (set to true for first timers!)
-var debugFinal = true; // if set to true, log the final output depending on special cases
+var debugFinal      = false; // if set to true, log the final output (depending on special cases)
 
 var abs   = Math.abs;
 var max   = Math.max;
@@ -523,15 +523,22 @@ function significantTransform(i, opts = {}) {
         precisionSeeked = isBetween(value, [0.8, 1])        ? 3.5 : isBetween(value, [1, 1.05]) ? 4.5 : 3 // special case for typical pressure around 1 bar
         break
 
-    // Power, Energy
+    // Power, Energy: Ws, Wh, VAh
     case "Wh":
     case "VAh":
     case "kWh":
+        precisionSeeked = Math.floor(Math.log10(abs(value))) + 1 + 0.5 // precision is 1 for 1-digit values, 2 for 2-digit values, etc.
+        switch (unit_i) {
+            case "Wh":
+                precisionSeeked -= 3 // reduce precision by 3 for Wh
+                break
+        }
+        precisionSeeked = max(1.5, precisionSeeked) // at least 1.5
         scaleSeeked = 1
         break
 
     case "J":
-    case "cal": // Energy: J, Ws, Wh, VAh, varh, cal
+    case "cal": // Energy: J, varh, cal
         scaleSeeked = 0
         break
 
@@ -902,13 +909,13 @@ function setDefault(value, defaultValue) {
 function compassAngleToDir(deg, scale = 2) {
     // scale: 1=4 directions, 2=8 directions, 3=16 directions, 4=32 directions
     const directions = [
-        ["N", "E", "S", "W"],
-        ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
-        ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"],
+        ["N", "E", "S", "W"],  // scale=1
+        ["N", "NE", "E", "SE", "S", "SW", "W", "NW"], // scale=2
+        ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"], // scale=3
         ["N", "NbE", "NNE", "NEbN", "NE", "NEbE", "ENE", "EbN",
          "E", "EbS", "ESE", "SEbE", "SE", "SEbS", "SSE", "SbE",
          "S", "SbW", "SSW", "SWbS", "SW", "SWbW", "WSW", "WbS",
-         "W", "WbN", "WNW", "NWbW", "NW", "NWbN", "NNW", "NbW"]
+         "W", "WbN", "WNW", "NWbW", "NW", "NWbN", "NNW", "NbW"] // scale=4
     ];
 
     scale = clamp(scale ?? 1, [1, 4]);
