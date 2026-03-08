@@ -29,6 +29,7 @@
 // Defaults and global variables:
 var verboseAsked     = false; // if default set to true here, script will always log some details about the transformation
 var testingAsked     = false; // if default set to true here, script will always support be set to "testing of new features"
+var dryRunAsked      = false; // if set to true, the script will not return the transformed value but rather the input value and log the would-be transformation result for testing purposes
 var debugEnabled     = false; // if default set to true here, script will always log debug messages
 var flickerEnabled   = false; // if default set to true here, output will always have a tiny, random fraction added to distinguish it from the previous value. This helps debugging
 var verboseIncreased = false; // if true and verbose is true, then log even more details
@@ -129,6 +130,7 @@ function significantTransform(i, opts = {}) {
     var mult      = opts.mult;
     var skew      = opts.skew;
     var flicker   = opts.flicker;
+    var dryRun    = opts.dryRun;
     // var normalize = false // opts.normalize; // normalization only on demand not yet implemented
 
     let input     = i.trim()  // store the incoming value (and optionally unit name) to be transformed
@@ -140,10 +142,10 @@ function significantTransform(i, opts = {}) {
     // reset on each invocation (prevents cross-call leakage) - FIXME: is this still needed in openHAB 5?
     verboseAsked = false;
     testingAsked = false;
+    dryRunAsked  = false;
     debugEnabled = false;
     flickerEnabled = false;
     verboseIncreased = false;
-
 
     // more vars to carry values of the injected parameters:
     var precisionAsked  = undefined // will carry the requested number of significant figures
@@ -181,6 +183,10 @@ function significantTransform(i, opts = {}) {
         testingAsked = !!setDefault(testing,  isTrue)
         // if (testingAsked) { verboseAsked = true ; }// if testing is asked, then also enable verbose logging
         strVerb += ` TEST=${l(testingAsked)}`;
+    }
+    if (dryRun != null) {
+        dryRunAsked = !!setDefault(dryRun,  isTrue)
+        // strVerb += ` DRYRUN=${l(dryRunAsked)}`;
     }
     if (si != null) {
         siAsked = !!setDefault(si, isTrue)
@@ -365,7 +371,8 @@ function significantTransform(i, opts = {}) {
         }
         [value, unit_i] = trans(value-32, 5/9, "°C") ; // convert and fallthrough to °C ...
     case "°C":
-        precisionSeeked = (abs(value) < 1) ? 0.7 : (abs(value) < 10) ? 1.5 : 2.5
+        precisionSeeked = (abs(value) < 1) ? 0.7 : (abs(value) < 10) ? 1.5 : isWithin(value, [100, 120]) ? 3 : 2.5
+        scaleSeeked = (abs(value) < 0.1) ? 2 : (abs(value) < 2) ? 1 : 0
         break;
     case "K":
         precisionSeeked  = max(-1, magniTude(value)) // more significant figures for higher temperatures
@@ -498,9 +505,11 @@ function significantTransform(i, opts = {}) {
     case "Wh":
     case "VAh":
         normalizeVector = normalizeVectorGeneric
+        // examples from AVM DECT energy meter: 821312 Wh
+        // fallthrough to kWh to reduce precision for Wh
     case "kWh":
         precisionSeeked = magniTude(value) + 1.5; // precision is 1 for 1-digit values, 2 for 2-digit values, etc.
-        if (unit_i === "Wh") precisionSeeked -= 3; // reduce precision by 3 for Wh
+        if (unit_i === "Wh") precisionSeeked -= 2; // reduce precision by 2 for Wh
         precisionSeeked = max(1.5, precisionSeeked) // .. but at least 1.5
         scaleSeeked = 1
         break
@@ -677,11 +686,11 @@ function significantTransform(i, opts = {}) {
     } else {
         if (divAsked != null) {
             value /= divAsked // apply the divisor if given
-            logit(`DIV: divAsked=${divAsked} for value=${value} unit=${unit_i} ${strVerb}`);
+            logit(`DIV: divAsked=${divAsked} for new value=${value} unit=${unit_i} ${strVerb}`);
         }
         if (multAsked != null) {
             value *= multAsked // apply the multiplier if given
-            logit(`MULT: multAsked=${multAsked} for value=${value} unit=${unit_i} ${strVerb}`);
+            logit(`MULT: multAsked=${multAsked} for new value=${value} unit=${unit_i} ${strVerb}`);
         }
 
         // Now take care of all the significant figure rounding!
@@ -720,10 +729,14 @@ function significantTransform(i, opts = {}) {
             debugit(` Finding rounded value for normalizedvalue=${normalizedvalue}, mult=${mult} (frac=${frac}) in borders=${borders}`);
             while (i < borders.length && normalizedvalue > borders[i]) i++;
             rounded = middles[i]
-            newValue = toPrec(newValue + sign * rounded * Math.pow(10, magnit - precisionSeeked), precisionSeeked+1)
+            // newValue = toPrec(newValue + sign * rounded * Math.pow(10, magnit - precisionSeeked), precisionSeeked+1)
+            newValue = newValue + sign * rounded * Math.pow(10, magnit - precisionSeeked) // add the rounded part to the newValue
+            newValue = Number(newValue.toPrecision(precisionSeeked+1)) // use toPrecision to round to the given number of significant figures, but convert back to Number to avoid trailing zeros
             debugit(` ROUNDED=${rounded} into newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) : i=${i}`);
         } else {
-            newValue = toPrec(value, precisionSeeked)
+            // newValue = toPrec(value, precisionSeeked)
+            newValue = Number(value.toPrecision(precisionSeeked)) // use toPrecision to round to the given number of significant figures, but convert back to Number to avoid trailing zeros
+            // debugit(` No rounding, just toPrecision(${value},${precisionSeeked}) > newValue=${newValue} ${strVerb}`);
         }
         let scale3 = Math.trunc(magniTude(newValue)/3)
         if (scale3 !== 0 && normalizeVector != null) { // magnitude could even be 1 larger...
@@ -748,7 +761,7 @@ function significantTransform(i, opts = {}) {
             newValue = newValue.replace(/\.0+e/, "e") // trailing .0+ before the 'e'
             newValue = newValue.replace(/(\.\d*?[1-9])0+e/, "$1e") // remove trailing zeros before the 'e'
             newValue = newValue.replace(/[eE]\+0$/, "") // any e+0 at the end
-            debugit(` CUT figures: magnitude=${magnit} > precisionSeeked=${precisionSeeked}, converted newValue=${newValue} finalUnit=${finalUnit}`);
+            debugit(` CUT figures: magnitude=${magnit}, precisionSeeked=${precisionSeeked} > newValue=${newValue} finalUnit=${finalUnit}`);
         } else {
             // debugit(` No cutting of extra significant figures: precisionFound=${precisionFound} >= precisionSeeked=${precisionSeeked}`);
             newValue += testingAsked ? Number.EPSILON : 0 // add a very small value to avoid rounding errors in the next step
@@ -759,15 +772,20 @@ function significantTransform(i, opts = {}) {
                 newValue += flickerAmount;
             }
         }
+        if (scaleSeeked != null && scaleSeeked !== 0) {
+            // logit(`SCALE: roundTo(newValue=${newValue}, scaleSeeked=${scaleSeeked})`);
+            newValue = roundTo(newValue, scaleSeeked)
+            // logit(`SCALE: scaleSeeked=${scaleSeeked} resulted in newValue=${newValue} unit=${unit_i} ${strVerb}`);
+        }
         debugit(` newValue=${newValue}, precisionSeeked=${precisionSeeked}  ${strVerb}`);
     }
 
     var logMsg = `${input} (${precisionFound}) > ${parseFloat(value.toPrecision(8))} ${unit_i} > ${fmt(newValue, finalUnit)} (${precisionSeeked}/${targetPrecisionSeeked}${scaleSeeked===undefined ? "" : " scale=" + scaleSeeked})  ${strVerb}`;
     if (! logit(`FINAL: ${logMsg}`) && (alwaysLogFinal || debugFinal)) {
-        consolelog(`SIGNF: ${logMsg}`)
+        consolelog(`SIGNF: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
     }
 
-    if (testingAsked && new Date().getSeconds() % 5 === 0) { // at every full 5 seconds, return the original value for testing purposes
+    if ((testingAsked && new Date().getSeconds() % 5 === 0) || dryRunAsked ) { // at every full 5 seconds, return the original value for testing purposes
         const out = fmt(origValue, origUnit);
         logit(`RETURNing origValue: ${out}`);
         return out;
@@ -809,15 +827,19 @@ function clamp(x, [minVal, maxVal]) {
 
 // roundTo(): round a number x to a given number of decimals (return a number)
 function roundTo(x, decimals) {
-    const factor = Math.pow(10, decimals);
-    return Math.round(x * factor) / factor;
+    // logit(`Number.EPSILON=${Number.EPSILON}`);
+    const factor = 10 ** decimals;
+    return Math.round((x) * factor) / factor; // if necessary, add NUMBER.EPSILON to x
 }
 
 // toPrec(): round a number x to a given number of significant figures (return a number)
+// now replaced by Number(x.toPrecision(sigfigs)) throughout the code, but keeping it here for possible future use if we want to implement a custom rounding to significant figures instead of using the built-in toPrecision() method
 function toPrec(x, sigfigs) {
+    return Number(x.toPrecision(sigfigs));
     if (x === 0) return 0;
     const magnit = magniTude(x);
     const factor = Math.pow(10, sigfigs - magnit - 1);
+    debugit(` toPrec: x=${x}, sigfigs=${sigfigs} > magnit=${magnit}, factor=${factor}`);
     return Math.round(x * factor) / factor;
 }
 
@@ -932,7 +954,7 @@ function compassAngleToDir(deg, scale = 2) {
 
   // Pick up any injected globals (some transform profiles define them directly)
   var injected = {};
-  ['precision','prec','scale','unit','div','mult','skew','si','verbose', 'testing', 'flicker', 'id'].forEach(k => {
+  ['precision','prec','scale','unit','div','mult','skew','si','verbose', 'testing', 'flicker', 'id', 'dryRun'].forEach(k => {
     if (this[k] != null) injected[k] = this[k];
     this[k] = undefined; // reset the injected globals to undefined to avoid interference with next invocation
   });
