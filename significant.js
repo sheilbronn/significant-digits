@@ -11,16 +11,15 @@
 // You should have received a copy of the GNU General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // significant.js is a OpenHAB transformation script to reduce incoming values to a unit-dependant, home-automation typical number of
-// significant figures in the SI unit system, plus some other features. It supports all known OpenHAB unit types.
-// Default of significant figures is 2, but is also modified depending on the unit type (e.g. temperature, speed, frequency, power, pressure, etc.)
-// It also foresees slightly higher values for significance in special cases, e.g. values around 50Hz, 
-// or a temperature close to the freezing point etc.
+// significant figures in the SI unit system, plus some other features. The general default number of significant figures is 2, but is adapted 
+// depending on the concrete OpenHAB unit type (e.g. temperature, speed, frequency, power, pressure, etc.)
+// It also foresees a slightly higher number for significance around special values, e.g. around 0 °C, 100 °C, 100 °F, 220 V, 50 Hz etc.
 
-// Transformation script parameters (all are optional):
-// "precision" : a given number of significant figures to round to (used to override the unit specific defaults), use like ...?precision=3
+// These script parameters are supported (all optional):
+// "precision" : force a given number of significant figures to round to (=override the unit specific default), use like ...?precision=3
 // "scale" : a number of decimal places to round to: ...?scale=0
 // "div" : a divisor to apply to the input value before rounding: ...?div=10 oder 1M or 1000 (useful since OpenHAB only supports one transformation at a time)
-// "mult" : a multiplier to apply to the input value before rounding: ...?mult=1K oder 1M oder 1000 (useful since OpenHAB only supports one transformation at a time)
+// "mult" : a multiplier to apply to the input value before rounding: ...?mult=1K oder 1M oder 1000 (similar to div)
 // "unit" : a unit to force the output to: ...?unit=°C (unit=. will remove any unit passed in the input)
 // "verbose" : one of {t|true|1|yes|y||false|no} to enable or disable logging: ...?verbose=true
 // "testing" : {t|true|1|yes|y||false|no} to enable or disable testing of new features: ...?testing=y
@@ -40,19 +39,12 @@ var id = "";                 // an optional id string to identify the invocation
 var scriptname = "significant.js: "; // will hold the script name for logging
 var normalizeVectorGeneric = Object.freeze(["µ", "m", "", "k", "M", "G", "T", "P", "E"]); // generic prefixes for normalization
 
-// Frequently used Math functions:
-var abs   = Math.abs;
-var min   = Math.min;
-var max   = Math.max;
-var floor = Math.floor;
-var round = Math.round;
-
 // Lookup tables for "nice" borders and middle values for significant figure rounding with fractional precisions:
 // when frac=0.5/mult=2 would be 100, 500, 1000.                 OK: 100, 500, 1000           with borders at 300, 700
 // when frac=0.4/mult=3 would be 100, 333, 667, 1000.        Better: 100, 300, 600, 1000      with borders at 200, 450, 800
 // when frac=0.3/mult=4 would be 100, 250, 500, 750, 1000.   Better: 100, 200, 500, 700, 1000 with borders at 150, 350, 600, 850
 // when frac=0.2/mult=5 would be 100, 200, 400, 600, 800, 1000   OK: 100, 200, 400, 600, 800, 1000   with borders at 150, 300, 500, 700, 900
-var BORDERS1 = Object.freeze({ // for different precision fractions
+var BORDERS1 = Object.freeze({ // for different precision fractions, i.e. a main (=integer) value larger than 0
   2: [2.5, 7.5],
   3: [1.5, 4.5, 8],
   4: [1, 3.5, 6, 8.5],
@@ -64,7 +56,7 @@ var MIDDLES1 = Object.freeze({
   4: [0, 2, 5, 7, 10],
   5: [0, 2, 4, 6, 8, 10]
 });
-var BORDERS0 = Object.freeze({ // for precision fractions with a main value of 0
+var BORDERS0 = Object.freeze({ // for precision fractions with a main (=integer) value of 0
   2: [3, 7.5],
   3: [2, 4.5, 8],
   4: [1.5, 3.5, 6, 8.5],
@@ -114,6 +106,13 @@ in, ft, yd, ch, fur, mi, lea, gr (mass), inHg, psi, mph, °F, gal (US), gal/min.
 Prefixes:
 All metric prefixes (mA, cm, kW, …) and binary prefixes (kiB, MiB, …) are supported—just prepend the symbol.
 */
+
+// Frequently used Math functions:
+var abs   = Math.abs;
+var min   = Math.min;
+var max   = Math.max;
+var floor = Math.floor;
+var round = Math.round;
 
 // Now the main function called by OpenHAB when the transformation is invoked:
 function significantTransform(i, opts = {}) {
@@ -231,7 +230,7 @@ function significantTransform(i, opts = {}) {
                 divAsked = amount; // or set undefined to reject
             } else {
                 divAsked = amount * SCALE_MAP[typea];
-                // verboseAsked = debugEnabled = true; // FIXME: only for testing purposes
+                // verboseAsked = debugEnabled = true; // enable only for testing purposes
                 logit(`Parsed div: amount=${amount} typea="${typea}" => divAsked=${divAsked}`);
             }
 
@@ -261,7 +260,7 @@ function significantTransform(i, opts = {}) {
         strVerb += ` FLICK=${l(flickerEnabled)}`;
     }
 
-    // input = "0.0123400" ; // keep some strange corner cases for testing purposes
+    // input = "0.0123400" ; // preserve some strange corner cases for debugging purposes
     // input = "04.0"
     // input = ".09870"
     // input = "-0.19870"
@@ -434,7 +433,7 @@ function significantTransform(i, opts = {}) {
         precisionSeeked -= abs(value) > 12*60 ? 1 : 0 // reduce precision by 1 for values > 12 hours
         break
     case "s":
-        // if (verboseAsked) { debugEnabled = true; } // FIXME: only for testing purposes
+        // if (verboseAsked) { debugEnabled = true; } // enable only for testing purposes
         normalizeVector = [ "µ", "m", "" ];
         if (abs(value)<1000) {
             precisionSeeked = 1.5
@@ -717,7 +716,7 @@ function significantTransform(i, opts = {}) {
             // taking a certain mult, iterate the borders to find the right one:
             let borders = BORDERS0[mult]; // borders for values for main figures equal to 0
             let middles = MIDDLES0[mult];
-            if (abs(newValue) < 1e-12) { // FIXME: treat rounding errors as 0
+            if (abs(newValue) < 1e-10) { // treat any rounding errors as 0
                 // now distinguish the corner cases of not putting unneeded figures to a newValue that already has enough significant figures
                 debugit(` newValue=${newValue}: Choosing BORDERS0/MIDDLES0`);
             } else {
@@ -742,7 +741,7 @@ function significantTransform(i, opts = {}) {
         if (scale3 !== 0 && normalizeVector != null) { // magnitude could even be 1 larger...
             // convert number to scientific notation and back to avoid signalling unneeded significant figures
             // only normalize with multiples of 3 and use the normalizeVector if given:
-            // debugEnabled = true; // FIXME: only for testing purposes
+            // debugEnabled = true; // FIXME: enable only for testing purposes
 
             let magnit = magniTude(newValue)
             let baseUnitIndex = normalizeVector.indexOf("") // find the index of the (empty) base unit in the normalizeVector
