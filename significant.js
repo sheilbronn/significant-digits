@@ -286,14 +286,13 @@ function significantTransform(i, opts = {}) {
         const localMs    = roundedUtc + offsetMinutes * 60 * 1000 // convert back to local wall time with the same fixed offset
         const dLoc = new Date(localMs)
         // now read components using UTC getters (we already applied the offset):
-        let output =                   `${dLoc.getUTCFullYear()    }` + "-"
-            +                          `${dLoc.getUTCMonth() + 1   }`.padStart(2, "0")  + "-"
-            +                          `${dLoc.getUTCDate()        }`.padStart(2, "0")  + timesep
-            + (scaleAsked < 1 ? "00" : `${dLoc.getUTCHours()       }`.padStart(2, "0")) + ":"
-            + (scaleAsked < 2 ? "00" : `${dLoc.getUTCMinutes()     }`.padStart(2, "0")) + ":"
-            + (scaleAsked < 3 ? "00" : `${dLoc.getUTCSeconds()     }`.padStart(2, "0"))
-            // + (scaleAsked < 4 ? ""  : `.${dLoc.getUTCMilliseconds()}`.padStart(3, "0"))
-            + (scaleAsked < 4 ? "" : "." + String(dLoc.getUTCMilliseconds()).padStart(3, "0"))
+        let output =                   `${dLoc.getUTCFullYear()  }` + "-"
+            +                          `${dLoc.getUTCMonth() + 1 }`.padStart(2, "0")  + "-"
+            +                          `${dLoc.getUTCDate()      }`.padStart(2, "0")  + timesep
+            + (scaleAsked < 1 ? "00" : `${dLoc.getUTCHours()     }`.p   adStart(2, "0")) + ":"
+            + (scaleAsked < 2 ? "00" : `${dLoc.getUTCMinutes()   }`.padStart(2, "0")) + ":"
+            + (scaleAsked < 3 ? "00" : `${dLoc.getUTCSeconds()   }`.padStart(2, "0"))
+            + (scaleAsked < 4 ? ""   : "." + String(dLoc.getUTCMilliseconds()).padStart(3, "0"))
             + tzoffset;
 
         if (input !== output || alwaysLogFinal || debugFinal || verboseAsked) {
@@ -370,7 +369,7 @@ function significantTransform(i, opts = {}) {
         }
         [value, unit_i] = trans(value-32, 5/9, "°C") ; // convert and fallthrough to °C ...
     case "°C":
-        precisionSeeked = (abs(value) < 1) ? 0.7 : (abs(value) < 10) ? 1.5 : isWithin(value, [100, 120]) ? 3 : 2.5
+        precisionSeeked = (abs(value) < 1) ? 0.7 : (abs(value) < 10) ? 1.5 : isWithin(value, [100, 120], [36, 42]) ? 3 : 2.5
         scaleSeeked = (abs(value) < 0.1) ? 2 : (abs(value) < 2) ? 1 : 0
         break;
     case "K":
@@ -826,7 +825,6 @@ function clamp(x, [minVal, maxVal]) {
 
 // roundTo(): round a number x to a given number of decimals (return a number)
 function roundTo(x, decimals) {
-    // logit(`Number.EPSILON=${Number.EPSILON}`);
     const factor = 10 ** decimals;
     return Math.round((x) * factor) / factor; // if necessary, add NUMBER.EPSILON to x
 }

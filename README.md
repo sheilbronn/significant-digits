@@ -1,15 +1,15 @@
-# 🌡️ significant.js — Human-Friendly Sensor Values for openHAB
+# 🌡️ significant.js — Human-friendly Sensor Values for openHAB
 
-**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on the context.
+**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a more *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on the context.
 
-It’s built for numeric state values such as from **weather**, **power**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality.
+It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **date/time values**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality.
 
 🧠 Smart enough to:
 
 - Handle all known OpenHAB units (°C, m/s, W, mph, hPa, … → see [list of UoM's](https://www.openhab.org/docs/concepts/units-of-measurement.html))
 - Reduce irrelevant "flicker"
 - Convert between units (e.g., °F → °C, mph → km/h, in → cm, …)
-- Special-case around important real-world values (e.g., 1000 mbar pressures, 50 Hz, 220 V, ...)
+- Special-case around important real-world values (e.g., 1000 mbar pressures, 0° C, 50 Hz, 110 V, 220 V, ...)
 
 ---
 
@@ -23,13 +23,14 @@ It’s built for numeric state values such as from **weather**, **power**, **air
 - Handles **date-time strings** (with `scale=0` for full days (1=hours, 2=minutes, 3=seconds, and 4=milliseconds)
 - Converts **textual intervals** to numbers ( "1-2" → 1.5, "3-5" → 4, as needed for e.g. [dwdpollen](https://www.openhab.org/addons/bindings/dwdpollenflug)
 - Debug options like **flicker mode** and verbose logging
+- Round any **date/time** passed in, the default is to round them to the next full second (a scale set to 3)
 
 ---
 
 ## 📦 Installation (openHAB)
 
-1. Install the [**JavaScript Automation**](https://192.168.178.76:8443/addons/automation/automation-jsscripting) add-on in openHAB.
-2. Place `significant.js` into your transform folder - usually:
+1. Install the [**JavaScript Scripting Addon**](https://192.168.178.76:8443/addons/automation/automation-jsscripting) add-on in openHAB.
+2. Download  `significant.js` into your transform folder - usually:
 
    ```bash
    /etc/openhab/transform/significant.js
@@ -48,7 +49,7 @@ Number:Temperature MyTemp "Temperature [%.1f %unit%]" {
 }
 ```
 
-### With query parameters
+### With transformation parameters
 
 ```ini
 ...
@@ -81,10 +82,16 @@ Valid Booleans are: `true`, `t`, `1`, `yes`, `y`, `on` for **true**, and everyth
 
 ## 🧪 Examples
 
-### 1. Round to 3 significant figures
+### 0. Round any sensor value to a sensible amount significant figures (default: 2)
 
 ```ini
-JS:significant.js?precision=3
+JS:significant.js
+```
+
+### 1. Round to 2 significant figures (e.g. 25 °C instead 25,2 °C)
+
+```ini
+JS:significant.js?precision=2
 ```
 
 ### 2. Show only whole numbers
