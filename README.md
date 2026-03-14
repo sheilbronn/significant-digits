@@ -29,8 +29,8 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 
 ## 📦 Installation (openHAB)
 
-1. Install the [**JavaScript Scripting Addon**](https://192.168.178.76:8443/addons/automation/automation-jsscripting) add-on in openHAB.
-2. Download  `significant.js` into your transform folder - usually:
+1. Install the [**JavaScript Scripting Addon**](https://www.openhab.org/addons/automation/jsscripting) add-on from the Addon Store in your openHAB web interface.
+2. Download `significant.js` into your transform folder - usually:
 
    ```bash
    /etc/openhab/transform/significant.js

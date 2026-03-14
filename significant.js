@@ -289,7 +289,7 @@ function significantTransform(i, opts = {}) {
         let output =                   `${dLoc.getUTCFullYear()  }` + "-"
             +                          `${dLoc.getUTCMonth() + 1 }`.padStart(2, "0")  + "-"
             +                          `${dLoc.getUTCDate()      }`.padStart(2, "0")  + timesep
-            + (scaleAsked < 1 ? "00" : `${dLoc.getUTCHours()     }`.p   adStart(2, "0")) + ":"
+            + (scaleAsked < 1 ? "00" : `${dLoc.getUTCHours()     }`.padStart(2, "0")) + ":"
             + (scaleAsked < 2 ? "00" : `${dLoc.getUTCMinutes()   }`.padStart(2, "0")) + ":"
             + (scaleAsked < 3 ? "00" : `${dLoc.getUTCSeconds()   }`.padStart(2, "0"))
             + (scaleAsked < 4 ? ""   : "." + String(dLoc.getUTCMilliseconds()).padStart(3, "0"))
@@ -443,7 +443,8 @@ function significantTransform(i, opts = {}) {
         break
 
     // Weights:
-    case "lbs":
+    case "lb":
+    case "lbs": // support both "lb" and "lbs" for pounds, since both are commonly used
         if (! siAsked) {
             precisionSeeked = (abs(value) < 10) ? 1.8 : (abs(value) < 100) ? 2.8 : (abs(value) < 400) ? 3.8 : 3
             break
@@ -770,7 +771,7 @@ function significantTransform(i, opts = {}) {
                 newValue += flickerAmount;
             }
         }
-        if (scaleSeeked != null && scaleSeeked !== 0) {
+        if (scaleSeeked != null) {
             // logit(`SCALE: roundTo(newValue=${newValue}, scaleSeeked=${scaleSeeked})`);
             newValue = roundTo(newValue, scaleSeeked)
             // logit(`SCALE: scaleSeeked=${scaleSeeked} resulted in newValue=${newValue} unit=${unit_i} ${strVerb}`);
