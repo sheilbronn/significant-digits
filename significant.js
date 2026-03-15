@@ -17,13 +17,16 @@
 
 // These script parameters are supported (all optional):
 // "precision" : force a given number of significant figures to round to (=override the unit specific default), use like ...?precision=3
-// "scale" : a number of decimal places to round to: ...?scale=0
-// "div" : a divisor to apply to the input value before rounding: ...?div=10 oder 1M or 1000 (useful since OpenHAB only supports one transformation at a time)
-// "mult" : a multiplier to apply to the input value before rounding: ...?mult=1K oder 1M oder 1000 (similar to div)
-// "unit" : a unit to force the output to: ...?unit=°C (unit=. will remove any unit passed in the input)
-// "verbose" : one of {t|true|1|yes|y||false|no} to enable or disable logging: ...?verbose=true
-// "testing" : {t|true|1|yes|y||false|no} to enable or disable testing of new features: ...?testing=y
-// "skew" : a number to add to the input value before rounding,: ...?skew=0.5 (e.g. for 0.5 significant figures)
+// "scale"     : a number of decimal places to round to: ...?scale=0
+// "div"       : a divisor to apply to the input value before rounding: ...?div=10 oder 1M or 1000 (useful since OpenHAB only supports one transformation at a time)
+// "mult"      : a multiplier to apply to the input value before rounding: ...?mult=1K oder 1M oder 1000 (similar to div)
+// "unit"     : a unit to force the output to: ...?unit=°C (unit=. will remove any unit passed in the input)
+// "verbose"  : one of {t|true|1|yes|y||false|no} to enable or disable logging: ...?verbose=true
+// "testing"  : {t|true|1|yes|y||false|no} to enable or disable testing of new features: ...?testing=y
+// "skew"     : a number to add to the input value before rounding,: ...?skew=0.5 (e.g. for 0.5 significant figures)
+
+// Not implemented (yet):
+// "mode"    : specify the rounding mode (e.g. "up", "down", "half-up", "half-down", "half-even", etc.) for the significant figure rounding, half-up is the default for now
 
 // Defaults and global variables:
 var verboseAsked     = false; // if default set to true here, script will always log some details about the transformation
@@ -49,25 +52,25 @@ var BORDERS1 = Object.freeze({ // for different precision fractions, i.e. a main
   3: [1.5, 4.5, 8],
   4: [1, 3.5, 6, 8.5],
   5: [1, 3,  5, 7, 9]
-});
+ });
 var MIDDLES1 = Object.freeze({
   2: [0, 5, 10],
   3: [0, 3, 6, 10],
   4: [0, 2, 5, 7, 10],
   5: [0, 2, 4, 6, 8, 10]
-});
+ });
 var BORDERS0 = Object.freeze({ // for precision fractions with a main (=integer) value of 0
   2: [3, 7.5],
   3: [2, 4.5, 8],
   4: [1.5, 3.5, 6, 8.5],
   5: [1.5, 3,  5, 7, 9]
-});
+ });
 var MIDDLES0 = Object.freeze({
   2: [1, 5, 10],
   3: [1, 3, 6, 10],
   4: [1, 2, 5, 7, 10],
   5: [1, 2, 4, 6, 8, 10]
-});
+ });
 
 /* All the following openHAB units should be understood: https://www.openhab.org/docs/concepts/units-of-measurement.html (uunits):
 Acceleration: m/s²
@@ -153,7 +156,7 @@ function significantTransform(i, opts = {}) {
     var multAsked  = undefined  // a multiplier to be applied to the input value before skew adding and before rounding
     var unitAsked  = undefined  // will carry the requested unit name
     var scaleAsked = undefined  // will carry the requested number of decimal places
-    var siAsked    = true  // will carry true if units shall be transformed to SI units (default=true), e.g. °C instead of °F
+    var siAsked    = true       // will carry true if units shall be transformed to SI units (default=true), e.g. °C instead of °F
 
     // Defaults:
     var scaleSeeked = undefined
@@ -312,7 +315,7 @@ function significantTransform(i, opts = {}) {
     if (isNaN(value)) { // check for special cases of NaN or non-numeric input, such as "0-1", "1-2", etc.
         // treat special input cases "0-1", "1-2", "2-3" as midpoints, e.g. as from https://www.openhab.org/addons/bindings/dwdpollenflug
         matches = input.match(/(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)/)
-        if (! matches) { // special case for ranges like "0-1", "1-2", "2-3"
+        if (!matches) { // special case for ranges like "0-1", "1-2", "2-3"
             logit(`FINAL: "${input}" is NaN.`)
             return input // take an early exit for NaN non-numeric values, and return the whole input as is.
         }
@@ -668,7 +671,7 @@ function significantTransform(i, opts = {}) {
     finalUnit = unit_i
     value += (skewAsked ?? 0)  // ... also apply any skew, if given
 
-    if (unit_i === "°") {  // handle angle values specially/differently:
+    if (unit_i === "°") {  // handle angle values differently than other units, more in terms of quadrants
         // 0..360° only, round to 90°, 45°, 22.5° steps
         value = ((value % 360) + 360) % 360 // normalize value into range [0..360)
         angledivider = 90 / floor(precisionSeeked)
@@ -678,8 +681,8 @@ function significantTransform(i, opts = {}) {
         } else {
             newValue = floor(  v  ) * angledivider  +  (angledivider/2)   // good for even precisionSeeked (2=45°, 4=22.5°)
         }
-        newValue = newValue % 360
-        debugit(`Angle: v=${v}, value=${value}° (${compassAngleToDir(value,precisionSeeked)}), newValue=${newValue}° (${compassAngleToDir(value,precisionSeeked)}), anglediv=${angledivider} ${strVerb}`);
+        newValue = newValue % 360 // normalize into range [0..360)
+        debugit(`Angle: v=${v}, value=${value}° (${compassAngleToDir(value,precisionSeeked)}), newValue=${newValue}° (${compassAngleToDir(newValue,precisionSeeked)}), anglediv=${angledivider} ${strVerb}`);
     } else if (value === 0) {
         debugFinal = false; // avoid logging final zero values unless verboseAsked
     } else {
@@ -780,11 +783,11 @@ function significantTransform(i, opts = {}) {
     }
 
     var logMsg = `${input} (${precisionFound}) > ${parseFloat(value.toPrecision(8))} ${unit_i} > ${fmt(newValue, finalUnit)} (${precisionSeeked}/${targetPrecisionSeeked}${scaleSeeked===undefined ? "" : " scale=" + scaleSeeked})  ${strVerb}`;
-    if (! logit(`FINAL: ${logMsg}`) && (alwaysLogFinal || debugFinal)) {
+    if ( !logit(`FINAL: ${logMsg}`) && (alwaysLogFinal || debugFinal)) {
         consolelog(`SIGNF: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
     }
 
-    if ((testingAsked && new Date().getSeconds() % 5 === 0) || dryRunAsked ) { // at every full 5 seconds, return the original value for testing purposes
+    if ((testingAsked && new Date().getSeconds() % 5 === 0) || dryRunAsked) { // at every full 5 seconds, return the original value for testing purposes
         const out = fmt(origValue, origUnit);
         logit(`RETURNing origValue: ${out}`);
         return out;
@@ -811,7 +814,7 @@ function suffixDiff(a, b) {
 function isWithin(value, ...ranges) {
     if (!Number.isFinite(value)) return false;
     return ranges.some(([a, b]) => {
-        if (a<=b) {
+        if (a <= b) {
             return a <= value && value <= b; // range is [min, max]
         } else {
             return a-b <= value && value <= a+b; // range is [center - halfwidth, center + halfwidth]

@@ -1,6 +1,6 @@
 # 🌡️ significant.js — Human-friendly Sensor Values for openHAB
 
-**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a more *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on the context.
+**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a more *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on your context and your preferences.
 
 It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **date/time values**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality.
 
@@ -19,11 +19,12 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 - Optional **decimal scale rounding** (e.g. to integers)
 - Supports **unit forcing or removal** (`unit=°C`, `unit=.`)
 - Pre-rounding adjustments: `div=`, `mult=`, `skew=`
-- **SI unit conversion** (`si=true`): °F→°C, mph→km/h, etc.
-- Handles **date-time strings** (with `scale=0` for full days (1=hours, 2=minutes, 3=seconds, and 4=milliseconds)
+- Optional **SI unit conversion** (`si=true`): °F→°C, mph→km/h, etc.
+- Handles **date-time values** (with `scale=2` for minutes (0=days, 1=hours, 2=minutes, 3=seconds, and 4=milliseconds)
+- Handles **angle values** in the sense of "quadrants/octants" and returns the middle of the quadrant/octant etc. (catering for wind directions, such as NO or SSW)
+- Adapts the **dimension** of the unit to indicate the amount of significant figures visually, e.g. 1025506 Wh become 1.03 MWh for 3 significant digits and 1026 kWh for 4 digits.
 - Converts **textual intervals** to numbers ( "1-2" → 1.5, "3-5" → 4, as needed for e.g. [dwdpollen](https://www.openhab.org/addons/bindings/dwdpollenflug)
 - Debug options like **flicker mode** and verbose logging
-- Round any **date/time** passed in, the default is to round them to the next full second (a scale set to 3)
 
 ---
 
