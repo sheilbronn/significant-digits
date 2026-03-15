@@ -481,6 +481,7 @@ function significantTransform(i, opts = {}) {
     case "Wh":
     case "VAh":
         normalizeVector = normalizeVectorGeneric
+        // normalizeVector = [ "n", "µ", "m", "", "k" ]; // limit the normalization vector for energy to Wh and kWh (no need for larger units for energy in home automation)
         // examples from AVM DECT energy meter: 821312 Wh
         // fallthrough to kWh to reduce precision for Wh
     case "kWh":
@@ -716,7 +717,8 @@ function significantTransform(i, opts = {}) {
             // debugit(` No rounding, just toPrecision(${value},${precisionSeeked}) > newValue=${newValue} ${strVerb}`);
         }
 
-        // might scale the unit by adding a dimension...
+        // might scale the unit by changing the dimension...
+        // FIXME: do we really want to scale 1276540 Wh to 1.2765 MWh? Wouldn't 1276.5 kWh be nicer for readability?
         let scale3 = Math.trunc(magniTude(newValue)/3)
         if (scale3 !== 0 && normalizeVector != null) { // magnitude could even be 1 larger...
             // convert number to scientific notation and back to avoid signalling unneeded significant figures
@@ -725,9 +727,10 @@ function significantTransform(i, opts = {}) {
 
             let magnit = magniTude(newValue)
             let baseUnitIndex = normalizeVector.indexOf("") // find the index of the (empty) base unit in the normalizeVector
-            if (normalizeVector[scale3+baseUnitIndex]) {
+            if (normalizeVector[baseUnitIndex + scale3]) {
+                // adapt value and unit dimension according to the amount of scale3
                 newValue = newValue / Math.pow(10, 3*scale3)
-                finalUnit = normalizeVector[scale3+baseUnitIndex] + unit_i
+                finalUnit = normalizeVector[baseUnitIndex + scale3] + unit_i
                 if (scaleSeeked !== null) {
                     scaleSeeked =+ 3*scale3 // also adapt scaleSeeked if given
                 }
