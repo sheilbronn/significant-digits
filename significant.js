@@ -36,11 +36,14 @@ var debugEnabled     = false; // if default set to true here, script will always
 var flickerEnabled   = false; // if default set to true here, output will always have a tiny, random fraction added to distinguish it from the previous value. This helps debugging
 var verboseIncreased = false; // if true and verbose is true, then log even more details
 var alwaysLogFinal   = false; // if set to true, always log the final output of the transformation (set to true for first timers!)
-var debugFinal       = true; // if set to true, log the final output (depending on special cases)
+var debugFinal       = true;  // if set to true, log the final output (depending on special cases)
 
-var id = "";                 // an optional id string to identify the invocation in the log messages
+var id         = "";                 // an optional id string to identify the invocation in the log messages
 var scriptname = "significant.js: "; // will hold the script name for logging
 var normalizeVectorGeneric = Object.freeze(["µ", "m", "", "k", "M", "G", "T", "P", "E"]); // generic prefixes for normalization
+var SCALE_AMOUNT_MAP = Object.freeze({
+    "": 1, k: 1e3, K: 1024, ki: 1024, M: 1e6, Mi: 1024 ** 2, G: 1e9, Gi: 1024 ** 3, T: 1e12, Ti: 1024 ** 4, P: 1e15, Pi: 1024 ** 5,
+});
 
 // Lookup tables for "nice" borders and middle values for significant figure rounding with fractional precisions:
 // when frac=0.5/mult=2 would be 100, 500, 1000.                 OK: 100, 500, 1000           with borders at 300, 700
@@ -135,7 +138,7 @@ function significantTransform(i, opts = {}) {
     var dryRun    = opts.dryRun;
     // var normalize = false // opts.normalize; // normalization only on demand not yet implemented
 
-    let input     = i.trim()  // store the incoming value (and optionally unit name) to be transformed
+    let input     = String(i ?? "").trim(); // store the incoming value (and optionally unit name) to be transformed
     let unit_i    = "" // will carry the unit name in the input i (if any)
     let strVerb   = "" // will carry the message string for logging
     let matches   = null // will be used for regex matches
@@ -212,44 +215,11 @@ function significantTransform(i, opts = {}) {
     if (div != null) {
         unitAsked = "" // eliminate unit when div is used, since div implies a unit change
 
-        // split div and check for e.g. "1k", "1K", "1M" and "7G" and "5T" and "8P" and ... and expand them to the corresponding number of bytes
-        // parse div: "<number><suffix>"
-        matches = String(div).trim().match(/^(\d+(?:\.\d+)?)([A-Za-z]*)$/) 
-        if (matches) { // does div look like a number with an optional suffix?
-            const amount = parseFloat(matches[1]);
-            const typea  = matches[2];
-
-            const SCALE_MAP = { "": 1, k: 1e3,  K: 1024,  ki: 1024,  M: 1e6, Mi: 1024 ** 2,
-                G: 1e9, Gi: 1024 ** 3,  T: 1e12, Ti: 1024 ** 4, P: 1e15, Pi: 1024 ** 5,
-            };
-
-            if (!Number.isFinite(amount)) {
-                warnit(`BAD div amount: "${matches[1]}"`);
-                divAsked = undefined;
-            } else if (!Object.prototype.hasOwnProperty.call(SCALE_MAP, typea)) {
-                warnit(`UNKNOWN div unit: "${typea}"`);
-                // decide: either ignore the suffix or reject entirely.
-                // Here we *ignore suffix* but still use the numeric amount:
-                divAsked = amount; // or set undefined to reject
-            } else {
-                divAsked = amount * SCALE_MAP[typea];
-                // verboseAsked = debugEnabled = true; // enable only for testing purposes
-                logit(`Parsed div: amount=${amount} typea="${typea}" => divAsked=${divAsked}`);
-            }
-
-            // guard zero (and NaN), regardless of suffix outcome
-            if (!Number.isFinite(divAsked) || divAsked === 0) {
-                warnit(`INVALID DIV value or 0; ignoring it to avoid division by zero.`);
-                divAsked = undefined;
-            }
-        } else {
-            logit(`Bad div format: "${div}"`);
-        }
+        divAsked = parseScaledNumber(div, "div");
         strVerb += ` div=${div} DIV=${divAsked}`;
     }
     if (mult != null) {
-        // debugit(` MULT=${mult}`);
-        multAsked = numOrUndef(mult)
+        multAsked = parseScaledNumber(mult, "mult");
         strVerb += ` MULT=${multAsked}`
     }
     if (unit != null) {
@@ -721,22 +691,22 @@ function significantTransform(i, opts = {}) {
             let middles = MIDDLES0[mult];
             if (abs(newValue) < 1e-10) { // treat any rounding errors as 0
                 // now distinguish the corner cases of not putting unneeded figures to a newValue that already has enough significant figures
-                debugit(` newValue=${newValue}: Choosing BORDERS0/MIDDLES0`);
+                debugit(` newValue=${newValue}: Choosing MIDDLES0`);
             } else {
                 borders = BORDERS1[mult];  // for precision fractions with a main value different from 0
                 middles = MIDDLES1[mult];
-                debugit(` newValue=${newValue}: Choosing BORDERS1/middles1`);
+                debugit(` newValue=${newValue}: Choosing MIDDLES1`);
             }
             let i = 0;
             debugit(` Finding rounded value for normalizedvalue=${normalizedvalue}, mult=${mult} (frac=${frac}) in borders=${borders}`);
-            while (i < borders.length && normalizedvalue > borders[i]) i++;
+            while (i < borders.length && normalizedvalue > borders[i]) 
+                i++;
             rounded = middles[i]
-            // newValue = toPrec(newValue + sign * rounded * Math.pow(10, magnit - precisionSeeked), precisionSeeked+1)
             newValue = newValue + sign * rounded * Math.pow(10, magnit - precisionSeeked) // add the rounded part to the newValue
-            newValue = Number(newValue.toPrecision(precisionSeeked+1)) // use toPrecision to round to the given number of significant figures, but convert back to Number to avoid trailing zeros
-            debugit(` ROUNDED=${rounded} into newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) : i=${i}`);
+            newValue = Number(newValue.toPrecision(precisionSeeked+1))
+            // debugit(` ROUNDED=${rounded} into newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) : i=${i}`);
+            logit(` ROUNDED=${rounded} into newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) : i=${i}`);
         } else {
-            // newValue = toPrec(value, precisionSeeked)
             newValue = Number(value.toPrecision(precisionSeeked)) // use toPrecision to round to the given number of significant figures, but convert back to Number to avoid trailing zeros
             // debugit(` No rounding, just toPrecision(${value},${precisionSeeked}) > newValue=${newValue} ${strVerb}`);
         }
@@ -833,17 +803,6 @@ function roundTo(x, decimals) {
     return Math.round((x) * factor) / factor; // if necessary, add NUMBER.EPSILON to x
 }
 
-// toPrec(): round a number x to a given number of significant figures (return a number)
-// now replaced by Number(x.toPrecision(sigfigs)) throughout the code, but keeping it here for possible future use if we want to implement a custom rounding to significant figures instead of using the built-in toPrecision() method
-function toPrec(x, sigfigs) {
-    return Number(x.toPrecision(sigfigs));
-    if (x === 0) return 0;
-    const magnit = magniTude(x);
-    const factor = Math.pow(10, sigfigs - magnit - 1);
-    debugit(` toPrec: x=${x}, sigfigs=${sigfigs} > magnit=${magnit}, factor=${factor}`);
-    return Math.round(x * factor) / factor;
-}
-
 // magniTude(): return the order magnitude of a number x (-1 for 0.1..0.9, 0 for 1..9, 1 for 10..99, 2 for 100..999, etc.)
 function magniTude(x) {
     if (x === 0) return 0;
@@ -852,7 +811,7 @@ function magniTude(x) {
 
 // isTrue(): interpret a given string as boolean true/false, and return the boolean value
 function isTrue(s) {
-    if (s == null) return false
+    if (s === null || s === undefined) return false
     if (s === true || s === false) return s   // handle booleans directly
     s = String(s ?? "").toLowerCase().trim()
     return (s === "t" || s === "true" || s === "yes" || s === "y" || s === "on" || s === "1")
@@ -908,6 +867,39 @@ function testit(s) {
 function numOrUndef(x) {
     const n = parseFloat(x);
     return Number.isFinite(n) ? n : undefined;
+}
+
+// parseScaledNumber(): parse "<number><suffix>" where suffix is a metric/binary shorthand like k, K, M, Mi, ...
+function parseScaledNumber(raw, label) {
+    const text = String(raw ?? "").trim();
+    const matches = text.match(/^([+-]?\d+(?:\.\d+)?)([A-Za-z]*)$/);
+    let parsed;
+
+    if (matches) {
+        const amount = parseFloat(matches[1]);
+        const typea = matches[2];
+
+        if (!Object.prototype.hasOwnProperty.call(SCALE_AMOUNT_MAP, typea)) {
+            warnit(`UNKNOWN ${label} unit: "${typea}"; ignoring ${raw}.`);
+            parsed = undefined;
+        } else {
+            parsed = amount * SCALE_AMOUNT_MAP[typea];
+            logit(`Parsed ${label}: amount=${amount} typea="${typea}" => ${label}Asked=${parsed}`);
+        }
+    } else {
+        parsed = numOrUndef(raw);
+        if (parsed == null) {
+            warnit(`Bad ${label} format: "${raw}"; ignoring it.`);
+            return undefined; // early return — avoids double-warning from the guard below
+        }
+    }
+
+    if (parsed === 0 && label === "div") {
+        warnit(`INVALID ${String(label).toUpperCase()} value 0; ignoring it.`);
+        return undefined;
+    }
+
+    return parsed;
 }
 
 // setDefault(): return defaultValue if value is undefined; if defaultValue is a function, call it with the value
