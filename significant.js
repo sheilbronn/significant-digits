@@ -170,7 +170,7 @@ function significantTransform(i, opts = {}) {
 
     // function for String(str)[0]
     const l = v => String(v)[0];  //return first character of the string passed in
-    const trans = (v, factor, newUnit) => [v * factor, newUnit];
+    const transpose = (v, factor, newUnit) => [v * factor, newUnit];
     const fmt = (v, u) => String(v) + (u ? " " + u : "");
 
     // debugit(`input=${input}`);
@@ -340,7 +340,7 @@ function significantTransform(i, opts = {}) {
             precisionSeeked = (abs(value)<3) ? 1.3 : isWithin(value, [190, 215]) ? 3 : 2.5
             break
         }
-        [value, unit_i] = trans(value-32, 5/9, "°C") ; // convert and fallthrough to °C ...
+        [value, unit_i] = transpose(value-32, 5/9, "°C") ; // convert and fallthrough to °C ...
     case "°C":
         precisionSeeked = (abs(value) < 1) ? 0.7 : (abs(value) < 10) ? 1.5 : isWithin(value, [100, 120], [36, 42]) ? 3 : 2.5
         scaleSeeked = (abs(value) < 0.1) ? 2 : (abs(value) < 2) ? 1 : 0
@@ -354,45 +354,45 @@ function significantTransform(i, opts = {}) {
 
     // Speed
     case "kn":
-        [ value, unit_i ] = trans(value, 1.15078, "mph"); // convert kn to mph
+        [ value, unit_i ] = transpose(value, 1.15078, "mph"); // convert kn to mph
     case "mph":
         precisionSeeked = (abs(value) < 10) ? 1.5 : (abs(value) < 30) ? 1.3 : 1.5
         scaleSeeked = 0
         if (siAsked) {
-            [ value, unit_i ] = trans(value, 1.609344, "km/h") ; // convert mph to km/h (prefer km/h over m/s for typical weather station wind speed)
+            [ value, unit_i ] = transpose(value, 1.609344, "km/h") ; // convert mph to km/h (prefer km/h over m/s for typical weather station wind speed)
         }
         break
     case "m/s":
-        [ value, unit_i ] = trans(value, 3.6, "km/h") ; // fallthrough to km/h ...
+        [ value, unit_i ] = transpose(value, 3.6, "km/h") ; // fallthrough to km/h ...
     case "km/h":
         precisionSeeked = (abs(value) < 5) ? 1 : (abs(value) < 20) ? 1.5 : 2
         break;
     case "in/h":
         if (siAsked) {
-            [ value, unit_i ] = trans(value, 25.4, "mm/h") ; // convert in/h to mm/h
+            [ value, unit_i ] = transpose(value, 25.4, "mm/h") ; // convert in/h to mm/h
         }
         break;
 
     // Length, distance, and precipitation
     case "yd":
-        [ value, unit_i ] = trans(value, 3, "ft") ; // convert yd to ft
+        [ value, unit_i ] = transpose(value,  3, "ft") ; // convert yd to ft
     case "ft":
-        [ value, unit_i ] = trans(value, 12, "in") ; // fallthrough to in ...
+        [ value, unit_i ] = transpose(value, 12, "in") ; // fallthrough to in ...
     case "in":
         if (! siAsked) {
             precisionSeeked = 2
             break
         }
-        [ value, unit_i ] = trans(value, 2.54, "cm") ; // fallthrough to cm ...
+        [ value, unit_i ] = transpose(value, 2.54, "cm") ; // fallthrough to cm ...
     case "cm": // typical for precipitation
-        [ value, unit_i ] = trans(value, 10, "mm") ; // fallthrough to mm ...
+        [ value, unit_i ] = transpose(value, 10, "mm") ; // fallthrough to mm ...
     case "mm": // typical for precipitation
         precisionSeeked = isWithin(value, [0, 80]) ? 1.7 : 2 // decrease precision for less than 80mm, probably precipitation
         // logit(`mm hit: value=${value} ${unit_i} (ORIG: ${origValue} ${origUnit})  ${strVerb}`);
         break;
     case "m": // typical for total precipitation
         precisionSeeked = isWithin(value, [0, 0.08]) ? 1.5 : 3 // decrease precision for less than 0.08m, probably precipitation
-        normalizeVector = [ "µ", "m", "", "k" ];
+        normalizeVector = [ "µ", "m", "", "k" ]; // limit the normalization vector for m to µ, m, k (no need for larger units for length in home automation)
         logit(`${unit_i} hit: value=${value} ${unit_i} (ORIG: ${origValue} ${origUnit})  ${strVerb}`);
         break;
 
@@ -406,7 +406,7 @@ function significantTransform(i, opts = {}) {
         break
     case "s":
         // if (verboseAsked) { debugEnabled = true; } // enable only for testing purposes
-        normalizeVector = [ "µ", "m", "" ];
+        normalizeVector = [ "n", "µ", "m", "" ]; // limit the normalization vector for s to µ, m, (no need for larger units for time in home automation)
         if (abs(value)<1000) {
             precisionSeeked = 1.5
         } else {
@@ -415,21 +415,25 @@ function significantTransform(i, opts = {}) {
         }
         break
 
-    // Weights:
+    // Weights: lb, kg, g
     case "lb":
-    case "lbs": // support both "lb" and "lbs" for pounds, since both are commonly used
+    case "lbs": // support both "lb" and "lbs" for pounds, since both might be used
         if (! siAsked) {
             precisionSeeked = (abs(value) < 10) ? 1.8 : (abs(value) < 100) ? 2.8 : (abs(value) < 400) ? 3.8 : 3
             break
         }
-        [ value, unit_i ] = trans(value, 0.4536, "kg") ; // convert lbs to kg and fallthrough to kg ...
-    case "kg":    // Weight
-        const av =  abs(value)
-        precisionSeeked = (av<10) ? 1.8 : (av<100) ? 2.8 : (av<200) ? 3.8 : 3
+        [ value, unit_i ] = transpose(value, 0.4536, "kg") ; // convert lbs to kg and fallthrough to kg ...
+    case "kg":
+        // special consideartion for body weights
+        precisionSeeked = (abs(value)<10) ? 1.8 : (abs(value)<100) ? 2.8 : (abs(value)<200) ? 3.8 : 3
         scaleSeeked = 1
         break
+    case "g":
+        normalizeVector = normalizeVectorGeneric
+        precisionSeeked = (abs(value) < 100) ? 1.8 : (abs(value) < 1000) ? 2.8 : 3
+        break
 
-    // Pressure units: Pa, hPa, mmHg, mbar, psi, inHg, bar,
+    // Pressures: Pa, hPa, mmHg, mbar, psi, inHg, bar,
     case "psi":
     case "inHg":
     case "mmHg":
@@ -455,13 +459,13 @@ function significantTransform(i, opts = {}) {
     case "hPa": // Pressure
         switch (unit_i) {
         case "psi": // psi -> hPa
-            [ value, unit_i ] = trans(value, 68.94757, "hPa") ; // exact factor: 1 psi = 68.94757293168 hPa
+            [ value, unit_i ] = transpose(value, 68.94757, "hPa") ; // exact factor: 1 psi = 68.94757293168 hPa
             break
         case "inHg": // inHg -> hPa
-            [ value, unit_i ] = trans(value, 33.86386, "hPa") ; // exact factor: 1 inHg = 33.86388157895 hPa
+            [ value, unit_i ] = transpose(value, 33.86386, "hPa") ; // exact factor: 1 inHg = 33.86388157895 hPa
             break
         case "mmHg": // mmHg -> hPa
-            [ value, unit_i ] = trans(value, 1.33322, "hPa") ; // exact factor: 1 mmHg = 1.3332236842105263 hPa
+            [ value, unit_i ] = transpose(value, 1.33322,  "hPa") ; // exact factor: 1 mmHg = 1.3332236842105263 hPa
             break
         }
         precisionSeeked = isWithin(value, [800, 1000])     ? 3.5 : isWithin(value, [1000, 1050]) ? 4.5 : 3 // special case for typical pressure around 1000 hPa
@@ -530,6 +534,7 @@ function significantTransform(i, opts = {}) {
         break
 
     case "W/m²": // Irradiance/Intensity
+        normalizeVector = normalizeVectorGeneric;
     case "µW/cm²":
         precisionSeeked = (abs(value) < 10) ? 1.5 : 1.8
         break
@@ -547,7 +552,7 @@ function significantTransform(i, opts = {}) {
             precisionSeeked = 2.8
             break
         }
-        [ value, unit_i ] = trans(value, 3.7854, unit_i.replace("gal", "l")) ; // exact factor: 1 gal (US) = 3.785411784 liters
+        [ value, unit_i ] = transpose(value, 3.7854, unit_i.replace("gal", "l")) ; // exact factor: 1 gal (US) = 3.785411784 liters
     case "l":
     case "l/min":
     case "m³":
@@ -560,7 +565,7 @@ function significantTransform(i, opts = {}) {
 
     case "mi": // Long distances
         if (siAsked) {
-            [ value, unit_i ] = trans(value, 1.609344, "km") ; // exact factor: 1 mi = 1.609344 km
+            [ value, unit_i ] = transpose(value, 1.609344, "km") ; // exact factor: 1 mi = 1.609344 km
         }
         // fallthrough to kilometers and use same default precision ...
     case "km":
@@ -601,7 +606,7 @@ function significantTransform(i, opts = {}) {
         break;
 
     case "percent":
-        unit_i = "%"; // treat option unit "percent" as "%" too - avoids problem with URL encoding of "%"
+        unit_i = "%"; // treat option unit "percent" as "%" too - might avoid problems with the URL encoding of "%"
     case "%": // Percent
         precisionSeeked = isWithin(value, [0, 4], [87, 102]) ? 1.2 : 1.5 // be more precise closer to 0% or to 100%
         normalizeVector = undefined; // don't normalize percentages
@@ -710,6 +715,8 @@ function significantTransform(i, opts = {}) {
             newValue = Number(value.toPrecision(precisionSeeked)) // use toPrecision to round to the given number of significant figures, but convert back to Number to avoid trailing zeros
             // debugit(` No rounding, just toPrecision(${value},${precisionSeeked}) > newValue=${newValue} ${strVerb}`);
         }
+
+        // might scale the unit by adding a dimension...
         let scale3 = Math.trunc(magniTude(newValue)/3)
         if (scale3 !== 0 && normalizeVector != null) { // magnitude could even be 1 larger...
             // convert number to scientific notation and back to avoid signalling unneeded significant figures
@@ -721,7 +728,10 @@ function significantTransform(i, opts = {}) {
             if (normalizeVector[scale3+baseUnitIndex]) {
                 newValue = newValue / Math.pow(10, 3*scale3)
                 finalUnit = normalizeVector[scale3+baseUnitIndex] + unit_i
-                // debugit(` NORMALIZE: scale3=${scale3} * 3 applied to magnit=${magnit}: newValue=${newValue} finalUnit=${finalUnit}`);
+                if (scaleSeeked !== null) {
+                    scaleSeeked =+ 3*scale3 // also adapt scaleSeeked if given
+                }
+                debugit(` NORMALIZE: scale3=${scale3} * 3 applied to magnit=${magnit}: newValue=${newValue} finalUnit=${finalUnit}`);
                 scale3=0 // since we chose the fitting unit
             } else {
                 // debugit(` NORMALIZE SKIPPED: scale3=${scale3}*3 NOT applied to magnit=${magnit}: no entry in normalizeVector=${normalizeVector}`);
