@@ -36,14 +36,25 @@ var debugEnabled     = false; // if default set to true here, script will always
 var flickerEnabled   = false; // if default set to true here, output will always have a tiny, random fraction added to distinguish it from the previous value. This helps debugging
 var verboseIncreased = false; // if true and verbose is true, then log even more details
 var alwaysLogFinal   = false; // if set to true, always log the final output of the transformation (set to true for first timers!)
-var debugFinal       = true;  // if set to true, log the final output (depending on special cases)
 
 var id         = "";                 // an optional id string to identify the invocation in the log messages
 var scriptname = "significant.js: "; // will hold the script name for logging
-var normalizeVectorGeneric = Object.freeze(["µ", "m", "", "k", "M", "G", "T", "P", "E"]); // generic prefixes for normalization
+var genericUnitPrefixes = Object.freeze(["µ", "m", "", "k", "M", "G", "T", "P", "E"]); // generic prefixes for normalization
 var SCALE_AMOUNT_MAP = Object.freeze({
     "": 1, k: 1e3, K: 1024, ki: 1024, M: 1e6, Mi: 1024 ** 2, G: 1e9, Gi: 1024 ** 3, T: 1e12, Ti: 1024 ** 4, P: 1e15, Pi: 1024 ** 5,
 });
+var DATE_TIME_SCALE_MAP = new Map([
+    ["paddings", [4, 2, 2, 2, 2, 2, 3]],
+    ["steps", new Map([
+        [-3, [1, 1, 2, 3, 4, 6]], // for fractional year rounding, e.g. to 5y, 4y, 3y, 2y steps
+        [-2, [1, 1, 5, 8, 10, 15]], // for fractional month rounding, e.g. to 6m, 4m, 3m, 2m steps
+        [-1, [1, 1, 2, 2, 3, 3]], // for fractional day rounding, e.g. to 2d, 3d, 4d, 5d, 6d, 7d, 8d, 9d steps
+        [0, [1, 2, 4, 6, 8, 12]], // for fractional hour rounding, e.g. to 12h, 8h, 6h, 4h, 2h steps
+        [1, [1, 5, 10, 15, 20, 30]], // for fractional minute rounding, e.g. to 30min, 20min, 15min, 10min, 5min steps
+        [2, [1, 5, 10, 15, 20, 30]], // for fractional second rounding, e.g. to 30s, 20s, 15s, 10s, 5s steps
+        [3, [1, 100, 125, 250, 333, 500]] // for fractional millisecond rounding, e.g. to 500ms, 333ms, 250ms, 125ms, 100ms steps
+    ])],
+]);
 
 // Lookup tables for "nice" borders and middle values for significant figure rounding with fractional precisions:
 // when frac=0.5/mult=2 would be 100, 500, 1000.                 OK: 100, 500, 1000           with borders at 300, 700
@@ -75,7 +86,8 @@ var MIDDLES0 = Object.freeze({
   5: [1, 2, 4, 6, 8, 10]
  });
 
-/* All the following openHAB units should be understood: https://www.openhab.org/docs/concepts/units-of-measurement.html (uunits):
+/* All the following openHAB units should be understood: 
+https://www.openhab.org/docs/concepts/units-of-measurement.html (uunits):
 Acceleration: m/s²
 Amount of substance: mol, °dH
 Angle: rad, °, ' (arc-min), '' (arc-sec)
@@ -123,21 +135,6 @@ var round = Math.round;
 // Now the main function called by OpenHAB when the transformation is invoked:
 function significantTransform(i, opts = {}) {
 
-    // map the given options (for unit testing or wrapper use) to special variables:
-    var verbose   = opts.verbose
-    var testing   = opts.testing;
-    var prec      = opts.prec ?? opts.precision;
-    var precision = opts.precision ?? prec;
-    var scale     = opts.scale
-    var si        = opts.si;
-    var unit      = opts.unit
-    var div       = opts.div;
-    var mult      = opts.mult;
-    var skew      = opts.skew;
-    var flicker   = opts.flicker;
-    var dryRun    = opts.dryRun;
-    // var normalize = false // opts.normalize; // normalization only on demand not yet implemented
-
     let input     = String(i ?? "").trim(); // store the incoming value (and optionally unit name) to be transformed
     let unit_i    = "" // will carry the unit name in the input i (if any)
     let strVerb   = "" // will carry the message string for logging
@@ -166,7 +163,7 @@ function significantTransform(i, opts = {}) {
     var angledivider = 1 // for rounding angles to 90°, 45°, 22.5° steps
     var precisionSeeked = 2  // 2 is the default for significant figures to round to, if no or unknown unit given
     let precisionFound = 0.5 // will hold the number of significant figures found in the input value, use 0.5 in case of no meaningful figures (also for "0.0")
-    let normalizeVector = [ ]; // will hold an array of units for normalization if needed, set to undefined if normalization is to be suppressed
+    let unitPrefixes = [ ]; // will hold an array of units for normalization if needed, set to undefined if normalization is to be suppressed
 
     // function for String(str)[0]
     const l = v => String(v)[0];  //return first character of the string passed in
@@ -176,60 +173,58 @@ function significantTransform(i, opts = {}) {
     // debugit(`input=${input}`);
 
     // Now parse all invocation parameters from the script call:
-    // verbose, testing, si, prec, precision, scale, div, mult, unit, flicker etc. into their corresponding xyzAsked variables.
-
-    if (verbose != null) {
-        verboseAsked = !!setDefault(verbose,  isTrue)
+    if (opts.verbose != null) {
+        verboseAsked = !!setDefault(opts.verbose,  isTrue)
         // add t or f to strVerb depending on verboseAsked
         strVerb += ` VERB=${l(verboseAsked)}`;
         // debugEnabled = verboseAsked; // only used TEMPORARELY for testing purposes
     }
-    if (testing != null) {
-        testingAsked = !!setDefault(testing,  isTrue)
+    if (opts.testing != null) {
+        testingAsked = !!setDefault(opts.testing,  isTrue)
         // if (testingAsked) { verboseAsked = true ; }// if testing is asked, then also enable verbose logging
         strVerb += ` TEST=${l(testingAsked)}`;
     }
-    if (dryRun != null) {
-        dryRunAsked = !!setDefault(dryRun,  isTrue)
+    if (opts.dryRun != null) {
+        dryRunAsked = !!setDefault(opts.dryRun,  isTrue)
         // strVerb += ` DRYRUN=${l(dryRunAsked)}`;
     }
-    if (si != null) {
-        siAsked = !!setDefault(si, isTrue)
+    if (opts.si != null) {
+        siAsked = !!setDefault(opts.si, isTrue)
         strVerb += ` SI=${l(siAsked)}`
     }
-    if (precision != null || prec != null) { // alias prec to precision for backward compatibility
-        precisionAsked = numOrUndef(precision ?? prec)
+    if (opts.precision != null) { // alias prec to precision for backward compatibility
+        precisionAsked = numOrUndef(opts.precision)
         strVerb += ` PREC=${precisionAsked}`;
         if (precisionAsked === 0.7) {
             // debugEnabled = true; // only for testing purposes
         }
     }
-    if (scale != null) {
-        scaleAsked     = numOrUndef(scale)
+    if (opts.scale != null) {
+        scaleAsked = numOrUndef(opts.scale)
         strVerb += ` SCALE=${scaleAsked}`;
     }
-    if (skew != null) {
-        skewAsked      = numOrUndef(skew)
+    if (opts.skew != null) {
+        skewAsked  = numOrUndef(opts.skew)
         strVerb += ` SKEW=${skewAsked}`;
     }
-    if (div != null) {
+    if (opts.div != null) {
         unitAsked = "" // eliminate unit when div is used, since div implies a unit change
 
-        divAsked = parseScaledNumber(div, "div");
-        strVerb += ` div=${div} DIV=${divAsked}`;
+        divAsked = parseScaledNumber(opts.div, "div");
+        strVerb += ` div=${opts.div} DIV=${divAsked}`;
     }
-    if (mult != null) {
-        multAsked = parseScaledNumber(mult, "mult");
+    if (opts.mult != null) {
+        multAsked = parseScaledNumber(opts.mult, "mult");
         strVerb += ` MULT=${multAsked}`
     }
-    if (unit != null) {
-        // debugit(` UNIT=${unit}`);
-        unitAsked = unit
+    if (opts.unit != null) {
+        // debugit(` UNIT=${opts.unit}`);
+        unitAsked = opts.unit
         strVerb += ` UNIT=${unitAsked}`
     }
-    if (flicker != null) {
-        // debugit(` FLICKER=${flicker}`);
-        flickerEnabled=!!setDefault(flicker, isTrue)
+    if (opts.flicker != null) {
+        // debugit(` FLICKER=${opts.flicker}`);
+        flickerEnabled=!!setDefault(opts.flicker, isTrue)
         strVerb += ` FLICK=${l(flickerEnabled)}`;
     }
 
@@ -300,11 +295,12 @@ function significantTransform(i, opts = {}) {
         }
         origValue = value // preserve original value for later logging and comparison, FIXME: should be saved before parseFloat
 
-        if (value>777 && value<778 && value===6.777) { // debug trigger value
+        // if (value>777 && value<778 && value===6.777) { // trigger debugging
+        if (isWithin(value, [6.776, 6.777], [328000, 4000])) {
             debugEnabled = true; // only for testing purposes
             verboseAsked = true;
             verboseIncreased = true;
-            logit(`DEBUG: 777 is hit. Setting for Debug.  ${strVerb}`);
+            logit(`  DEBUG: ${value} triggers debugging.  ${strVerb}`);
         }
     }
 
@@ -387,12 +383,12 @@ function significantTransform(i, opts = {}) {
     case "cm": // typical for precipitation
         [ value, unit_i ] = transpose(value, 10, "mm") ; // fallthrough to mm ...
     case "mm": // typical for precipitation
-        precisionSeeked = isWithin(value, [0, 80]) ? 1.7 : 2 // decrease precision for less than 80mm, probably precipitation
+        precisionSeeked = isWithin(value, [0, 100]) ? 1.7 : 2 // decrease precision for less than 80mm, probably precipitation
         // logit(`mm hit: value=${value} ${unit_i} (ORIG: ${origValue} ${origUnit})  ${strVerb}`);
         break;
     case "m": // typical for total precipitation
-        precisionSeeked = isWithin(value, [0, 0.08]) ? 1.5 : 3 // decrease precision for less than 0.08m, probably precipitation
-        normalizeVector = [ "µ", "m", "", "k" ]; // limit the normalization vector for m to µ, m, k (no need for larger units for length in home automation)
+        precisionSeeked = isWithin(value, [0, 0.1]) ? 1.5 : 3 // decrease precision for less than 0.08m, probably precipitation
+        unitPrefixes = [ "µ", "m", "", "k" ]; // limit the normalization vector for m to µ, m, k (no need for larger units for length in home automation)
         logit(`${unit_i} hit: value=${value} ${unit_i} (ORIG: ${origValue} ${origUnit})  ${strVerb}`);
         break;
 
@@ -406,12 +402,11 @@ function significantTransform(i, opts = {}) {
         break
     case "s":
         // if (verboseAsked) { debugEnabled = true; } // enable only for testing purposes
-        normalizeVector = [ "n", "µ", "m", "" ]; // limit the normalization vector for s to µ, m, (no need for larger units for time in home automation)
-        if (abs(value)<1000) {
-            precisionSeeked = 1.5
+        unitPrefixes = [ "n", "µ", "m", "" ]; // limit the normalization vector for s to µ, m, (no need for larger units for time in home automation)
+        if (isWithin(value, [1, 1000])) {
+            precisionSeeked = 1.5 // typical for song lengths running on Amazon Echo
         } else {
-            precisionSeeked = 99
-            scaleSeeked = -2
+            precisionSeeked = min( 2, magniTude(value))// precision starts at 2 for <1 and 3 for >1000
         }
         break
 
@@ -429,7 +424,7 @@ function significantTransform(i, opts = {}) {
         scaleSeeked = 1
         break
     case "g":
-        normalizeVector = normalizeVectorGeneric
+        unitPrefixes = genericUnitPrefixes
         precisionSeeked = (abs(value) < 100) ? 1.8 : (abs(value) < 1000) ? 2.8 : 3
         break
 
@@ -443,7 +438,7 @@ function significantTransform(i, opts = {}) {
                 precisionSeeked = isWithin(value, [14.7, 0.7]) ? 3.5 : 3 // special case for typical atmospheric pressure around 14.7 psi
                 break
             case "inHg":
-                precisionSeeked = isWithin(value, [30, 1.5]) ? 3.5 : 3 // special case for typical pressure around 30 inHg
+                precisionSeeked = isWithin(value, [30,  1.5]) ? 3.5 : 3 // special case for typical pressure around 30 inHg
                 break
             case "mmHg":
                 precisionSeeked = isWithin(value, [750, 770]) ? 3.5 : 3 // special case for typical pressure around 760 mmHg
@@ -480,7 +475,7 @@ function significantTransform(i, opts = {}) {
     // Power, Energy: Ws, Wh, VAh
     case "Wh":
     case "VAh":
-        normalizeVector = normalizeVectorGeneric
+        unitPrefixes = genericUnitPrefixes
         // normalizeVector = [ "n", "µ", "m", "", "k" ]; // limit the normalization vector for energy to Wh and kWh (no need for larger units for energy in home automation)
         // examples from AVM DECT energy meter: 821312 Wh
         // fallthrough to kWh to reduce precision for Wh
@@ -493,7 +488,7 @@ function significantTransform(i, opts = {}) {
 
     case "J":
     case "cal": // Energy: J, varh, cal
-        normalizeVector = normalizeVectorGeneric
+        unitPrefixes = genericUnitPrefixes
         scaleSeeked = 0
         break
 
@@ -501,7 +496,7 @@ function significantTransform(i, opts = {}) {
         precisionSeeked = 3
         break
     case "Hz": // Frequency/Rotation
-        normalizeVector = normalizeVectorGeneric;
+        unitPrefixes = genericUnitPrefixes;
         precisionSeeked = isWithin(value, [50, 0.3], [60, 0.2], [400, 10]) ? 2.8 : 2 // higher precision for power line frequency
         break;
 
@@ -509,7 +504,7 @@ function significantTransform(i, opts = {}) {
     case "A":
     case "Ah":
     case "Ω":
-        normalizeVector = normalizeVectorGeneric;
+        unitPrefixes = genericUnitPrefixes;
     case "kA":
     case "mA":
     case "µA":
@@ -527,7 +522,7 @@ function significantTransform(i, opts = {}) {
         break
 
     case "W": // Power
-        normalizeVector = normalizeVectorGeneric;
+        unitPrefixes = genericUnitPrefixes;
     case "kW":
     case "MW":
     case "dBm":
@@ -535,13 +530,13 @@ function significantTransform(i, opts = {}) {
         break
 
     case "W/m²": // Irradiance/Intensity
-        normalizeVector = normalizeVectorGeneric;
+        unitPrefixes = genericUnitPrefixes;
     case "µW/cm²":
         precisionSeeked = (abs(value) < 10) ? 1.5 : 1.8
         break
 
     case "V": // Voltage
-        normalizeVector = normalizeVectorGeneric;
+        unitPrefixes = genericUnitPrefixes;
         precisionSeeked = isWithin(value, [110, 5], [230, 20], [400, 40]) ? 2.8 : 2.7
         break;
 
@@ -561,7 +556,7 @@ function significantTransform(i, opts = {}) {
     case "m³/min":
     case "m³/h":
     case "m³/d":
-        precisionSeeked = (unit_i==="l" && isWithin(value, [8, 300])) ? 3 : 2.8 // special case for typical volume around 8..300 liters (e.g. fuel tank)
+        precisionSeeked = (unit_i==="l" && isWithin(value, [8, 500])) ? 3 : 2.8 // special case for typical volume around 8..300 liters (e.g. fuel tank)
         break
 
     case "mi": // Long distances
@@ -582,7 +577,7 @@ function significantTransform(i, opts = {}) {
     case "kbit/s":
     case "bit/s":
         precisionSeeked = 2
-        normalizeVector = undefined; // don't normalize data rates
+        unitPrefixes = undefined; // don't normalize data rates
         break;
     case "Mbit": // Memory sizes
     case "kbit":
@@ -594,7 +589,7 @@ function significantTransform(i, opts = {}) {
     case "B":
         debugFinal = false; // FIXME: do not always log final if div with SCALING is used, to avoid log flooding with swap size logging
         precisionSeeked = 2
-        normalizeVector = undefined; // don't normalize memory sizes
+        unitPrefixes = undefined; // don't normalize memory sizes
         break;
 
     case "ppm":
@@ -609,14 +604,14 @@ function significantTransform(i, opts = {}) {
     case "percent":
         unit_i = "%"; // treat option unit "percent" as "%" too - might avoid problems with the URL encoding of "%"
     case "%": // Percent
-        precisionSeeked = isWithin(value, [0, 4], [87, 102]) ? 1.2 : 1.5 // be more precise closer to 0% or to 100%
-        normalizeVector = undefined; // don't normalize percentages
+        precisionSeeked = isWithin(value, [0, 5], [89, 102]) ? 1.2 : 1.5 // be more precise closer to 0% or to 100%
+        unitPrefixes = undefined; // don't normalize percentages
         // logit(`Percent hit: value=${value} ${unit_i}  ${strVerb}`);
         break;
 
     case "°": // Angle
         precisionSeeked = 2
-        normalizeVector = undefined; // don't normalize angles
+        unitPrefixes = undefined; // don't normalize angles
         // prec=1: between <45 and >315 degrees -> 0°, between 45 and 135 -> 90°, between 135 and 225 -> 180°, between 225 and 315 -> 270°
         // prec=2: between 337.5 and 22.5 degrees -> 0°, between 22.5 and 67.5 -> 45°, between 67.5 and 112.5 -> 90°, between 112.5 and 157.5 -> 135°
         // prec=3: between 348.75 and 11.25 degrees -> 0°, between 11.25 and 33.75 -> 22.5°, between 33.75 and 56.25 -> 45°, between 56.25 and 78.75 -> 67.5°
@@ -671,7 +666,7 @@ function significantTransform(i, opts = {}) {
             logit(`MULT: multAsked=${multAsked} for new value=${value} unit=${unit_i} ${strVerb}`);
         }
 
-        // Now take care of all the significant figure rounding!
+        // Now take care of all the significant figure rounding...
         var frac = roundTo(precisionSeeked - floor(precisionSeeked), 1) // split off the fractional part from the precisionSeeked (1 digit)
         precisionSeeked = floor(precisionSeeked)
         var magnit = undefined;
@@ -679,14 +674,16 @@ function significantTransform(i, opts = {}) {
         magnit = magniTude(value)  // magnitude is 0 for 1-9, 1 for 10-99, 2 for 100-999 and so on....
         power = Math.pow(10, magnit - precisionSeeked + 1) // when prec=1: power is 100 for prec=2 and value=349 (magnit=2)
         debugit(`=== value=${value} ${unit_i} Seeked=${precisionSeeked} AND Found=${precisionFound}, magnit=${magnit} power=${power} frac=${frac} ${strVerb}`);
+        // ... and do the magic for the fractional part in precisionSeeked:
         if (frac > 0 && precisionFound > precisionSeeked) {
-            if (frac === 0.9 || frac===0.1 ) { warnit(`prec is ${precisionSeeked} + 0.9, same as prec=${precisionSeeked+1}, consider using integer precisions only.`); }
+            frac = frac > 0.5 ? roundTo(1 - frac, 1) : frac; // mirror ... 
+            if (frac === 0.1) {
+                warnit(`prec is valued at ${precisionSeeked} + 0.1, same as prec=${precisionSeeked + 1}, consider using integer precisions only.`);
+            }            
             var rounded = 0
             debugit(` == Rounding value=${value} with frac=${frac}, precisionSeeked=${precisionSeeked} ${strVerb}`);
-            frac = Number( frac>0.5 ? (1.0-frac) : frac) // .toFixed(1) // make symmetric: 0.6 -> 0.4, 0.7 -> 0.3 ..., avoid floating point issues by toFixed(1)
-            frac = roundTo(frac, 1) // avoid floating point issues
             let mult = clamp(Math.ceil(1/frac), [2, 5]) // mult is 2 for frac=0.5, 3 for frac=0.4, 4 for frac=0.3, 5 for frac=0.2
-            let sign = value<0 ? -1 : 1
+            let sign = Math.sign(value)
             // debugit(`  frac=${frac} -> mult=${mult}`);
             newValue = sign * floor(abs(value) / power) * power // cut off to the integer part with the given precision
             let normalizedvalue = sign * (value-newValue) / Math.pow(10, magnit - precisionSeeked)  // normalize the value to be between 1 and 10
@@ -697,11 +694,11 @@ function significantTransform(i, opts = {}) {
             let middles = MIDDLES0[mult];
             if (abs(newValue) < 1e-10) { // treat any rounding errors as 0
                 // now distinguish the corner cases of not putting unneeded figures to a newValue that already has enough significant figures
-                debugit(` newValue=${newValue}: Choosing MIDDLES0`);
+                debugit(` newValue=${newValue}: Choose MIDDLES0`);
             } else {
                 borders = BORDERS1[mult];  // for precision fractions with a main value different from 0
                 middles = MIDDLES1[mult];
-                debugit(` newValue=${newValue}: Choosing MIDDLES1`);
+                debugit(` newValue=${newValue}: Choose MIDDLES1`);
             }
             let i = 0;
             debugit(` Finding rounded value for normalizedvalue=${normalizedvalue}, mult=${mult} (frac=${frac}) in borders=${borders}`);
@@ -710,49 +707,52 @@ function significantTransform(i, opts = {}) {
             rounded = middles[i]
             newValue = newValue + sign * rounded * Math.pow(10, magnit - precisionSeeked) // add the rounded part to the newValue
             newValue = Number(newValue.toPrecision(precisionSeeked+1))
-            // debugit(` ROUNDED=${rounded} into newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) : i=${i}`);
-            logit(` ROUNDED=${rounded} into newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) : i=${i}`);
+            debugit(` ROUNDED=${rounded} for newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) i=${i}`);
         } else {
             newValue = Number(value.toPrecision(precisionSeeked)) // use toPrecision to round to the given number of significant figures, but convert back to Number to avoid trailing zeros
             // debugit(` No rounding, just toPrecision(${value},${precisionSeeked}) > newValue=${newValue} ${strVerb}`);
         }
 
         // might scale the unit by changing the dimension...
-        // FIXME: do we really want to scale 1276540 Wh to 1.2765 MWh? Wouldn't 1276.5 kWh be nicer for readability?
+        // FIXME: really scale 1276540 Wh to 1.2765 MWh?  Wouldn't 1276.5 kWh be nicer for readability?
         let scale3 = Math.trunc(magniTude(newValue)/3)
-        if (scale3 !== 0 && normalizeVector != null) { // magnitude could even be 1 larger...
+        if (scale3 !== 0 && unitPrefixes != null) { // magnitude could even be 1 larger...
             // convert number to scientific notation and back to avoid signalling unneeded significant figures
             // only normalize with multiples of 3 and use the normalizeVector if given:
             // debugEnabled = true; // FIXME: enable only for testing purposes
 
             let magnit = magniTude(newValue)
-            let baseUnitIndex = normalizeVector.indexOf("") // find the index of the (empty) base unit in the normalizeVector
-            if (normalizeVector[baseUnitIndex + scale3]) {
+            let baseUnitIndex = unitPrefixes.indexOf("") // find the index of the (empty) base unit in the normalizeVector
+            if (unitPrefixes[baseUnitIndex + scale3]) {
                 // adapt value and unit dimension according to the amount of scale3
                 newValue = newValue / Math.pow(10, 3*scale3)
-                finalUnit = normalizeVector[baseUnitIndex + scale3] + unit_i
+                finalUnit = unitPrefixes[baseUnitIndex + scale3] + unit_i
                 if (scaleSeeked !== null) {
-                    scaleSeeked =+ 3*scale3 // also adapt scaleSeeked if given
+                    scaleSeeked =+ 3*scale3 // also adapt scaleSeeked, if given
                 }
                 debugit(` NORMALIZE: scale3=${scale3} * 3 applied to magnit=${magnit}: newValue=${newValue} finalUnit=${finalUnit}`);
                 scale3=0 // since we chose the fitting unit
             } else {
-                // debugit(` NORMALIZE SKIPPED: scale3=${scale3}*3 NOT applied to magnit=${magnit}: no entry in normalizeVector=${normalizeVector}`);
-            }
-            newValue = newValue.toExponential( min( precisionFound, Math.ceil(precisionSeeked+frac))-1)  // newValue as string in scientific notation with precisionFound significant figures
-            // NO MORE calculations possible here >> BE CAREFUL, since newValue IS now a STRING! <<
+                debugit(` NORMALIZE SKIPPED: scale3=${scale3}*3 NOT applied to magnit=${magnit}: no entry in normalizeVector=${unitPrefixes}`);
 
-            // remove unnecessary stuff in the fractional part:
-            newValue = newValue.replace(/\.0+e/, "e") // trailing .0+ before the 'e'
-            newValue = newValue.replace(/(\.\d*?[1-9])0+e/, "$1e") // remove trailing zeros before the 'e'
-            newValue = newValue.replace(/[eE]\+0$/, "") // any e+0 at the end
-            debugit(` CUT figures: magnitude=${magnit}, precisionSeeked=${precisionSeeked} > newValue=${newValue} finalUnit=${finalUnit}`);
+                let movedecimals = min( precisionFound, Math.ceil(precisionSeeked+frac)) - 0
+                newValue = newValue.toExponential( movedecimals )  // newValue as string in scientific notation with precisionFound significant figures
+                
+                // NO MORE calculations possible here >> BE CAREFUL, since newValue now becomes a STRING!
+                // remove unnecessary stuff in the fractional part:
+                newValue = newValue.replace(/\.0+e/, "e") // trailing .0+ before the 'e'
+                newValue = newValue.replace(/(\.\d*?[1-9])0+e/, "$1e") // trailing zeros before the 'e'
+                newValue = newValue.replace(/[eE]\+0$/, "") // any e+0 at the end
+                debugit(` CUT figures: magnitude=${magnit}, precisionSeeked=${precisionSeeked} > newValue=${newValue} finalUnit=${finalUnit}`);
+                scaleSeeked = null;  // Ignore any scaleSeeked, since we already cut the number to the right amount of significant figures
+                // do not apply any more scaling, since newValue is now a string with the right number of significant figures, and scaling would add unneeded zeros again
+            }
         } else {
             // debugit(` No cutting of extra significant figures: precisionFound=${precisionFound} >= precisionSeeked=${precisionSeeked}`);
             newValue += testingAsked ? Number.EPSILON : 0 // add a very small value to avoid rounding errors in the next step
             if (flickerEnabled) {
                 const denom = (Number.isFinite(power) && power !== 0) ? power : 1;
-                const flickerAmount = (Math.round(Math.random() * 100) / 100) * 0.0001 / denom;
+                const flickerAmount = (round(Math.random() * 100) / 100) * 0.0001 / denom;
                 logit(`FLICKER: denom=${denom}, flickerAmount=${flickerAmount}: origValue=${fmt(origValue, origUnit)} -> newValue=${fmt(newValue, unit_i)} ${strVerb}`);
                 newValue += flickerAmount;
             }
@@ -765,8 +765,8 @@ function significantTransform(i, opts = {}) {
         debugit(` newValue=${newValue}, precisionSeeked=${precisionSeeked}  ${strVerb}`);
     }
 
-    var logMsg = `${input} (${precisionFound}) > ${parseFloat(value.toPrecision(8))} ${unit_i} > ${fmt(newValue, finalUnit)} (${precisionSeeked}/${targetPrecisionSeeked}${scaleSeeked===undefined ? "" : " scale=" + scaleSeeked})  ${strVerb}`;
-    if ( !logit(`FINAL: ${logMsg}`) && (alwaysLogFinal || debugFinal)) {
+    var logMsg = `${input} (${precisionFound}) > ${parseFloat(value.toPrecision(8))} ${unit_i} > ${fmt(newValue, finalUnit)} (${targetPrecisionSeeked}${scaleSeeked===undefined ? "" : " sc=" + scaleSeeked})  ${strVerb}`;
+    if ( !logit(`FINAL: ${logMsg}`) && alwaysLogFinal) {
         consolelog(`SIGNF: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
     }
 
@@ -793,12 +793,12 @@ function suffixDiff(a, b) {
   return { aSuffix: a.slice(pos), bSuffix: b.slice(pos) };
 }
 
-// isWithin(): check if value is within any of the given ranges (inclusive) - ranges can be given as [min, max] or as [center, halfwidth]
+// isWithin(): check if value is within any of the given ranges - ranges can be given as [min, max) or as [center, halfwidth]
 function isWithin(value, ...ranges) {
     if (!Number.isFinite(value)) return false;
     return ranges.some(([a, b]) => {
         if (a <= b) {
-            return a <= value && value <= b; // range is [min, max]
+            return a <= value && value < b; // range is [min, max)
         } else {
             return a-b <= value && value <= a+b; // range is [center - halfwidth, center + halfwidth]
         }
@@ -807,19 +807,19 @@ function isWithin(value, ...ranges) {
 
 // clamp(): clamp a number x to the range [min, max]
 function clamp(x, [minVal, maxVal]) {
-    return Math.min(maxVal, Math.max(minVal, x))
+    return min(maxVal, max(minVal, x))
 }
 
 // roundTo(): round a number x to a given number of decimals (return a number)
 function roundTo(x, decimals) {
     const factor = 10 ** decimals;
-    return Math.round((x) * factor) / factor; // if necessary, add NUMBER.EPSILON to x
+    return round(x * factor) / factor; // if necessary, add NUMBER.EPSILON to x
 }
 
-// magniTude(): return the order magnitude of a number x (-1 for 0.1..0.9, 0 for 1..9, 1 for 10..99, 2 for 100..999, etc.)
+// magniTude(): return the order magnitude of any number x (-1 for 0.1..0.9, 0 for 1..9, 1 for 10..99, 2 for 100..999, etc.)
 function magniTude(x) {
     if (x === 0) return 0;
-    return Math.floor(Math.log10(Math.abs(x)));
+    return floor(Math.log10(abs(x)));
 }
 
 // isTrue(): interpret a given string as boolean true/false, and return the boolean value
@@ -927,10 +927,10 @@ function compassAngleToDir(deg, scale = 2) {
         ["N", "E", "S", "W"],  // scale=1
         ["N", "NE", "E", "SE", "S", "SW", "W", "NW"], // scale=2
         ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"], // scale=3
-        ["N", "NbE", "NNE", "NEbN", "NE", "NEbE", "ENE", "EbN",
+        ["N", "NbE", "NNE", "NEbN", "NE", "NEbE", "ENE", "EbN", // scale=4
          "E", "EbS", "ESE", "SEbE", "SE", "SEbS", "SSE", "SbE",
          "S", "SbW", "SSW", "SWbS", "SW", "SWbW", "WSW", "WbS",
-         "W", "WbN", "WNW", "NWbW", "NW", "NWbN", "NNW", "NbW"] // scale=4
+         "W", "WbN", "WNW", "NWbW", "NW", "NWbN", "NNW", "NbW"]
     ];
 
     scale = clamp(scale ?? 1, [1, 4]);
