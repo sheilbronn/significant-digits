@@ -234,38 +234,76 @@ function significantTransform(i, opts = {}) {
     // input = "-0.19870"
 
     // If the input looks like a DATE-TIME string: scale the time part to a number of significant time parts (days, hours, minutes, seconds, ...):
-    // e.g. "2025-09-27T14:16:00.000+0200"
-    const dtregex = /^(\d{4})-([01]\d)-([0123]\d)(T| )([012]\d):([0-5]\d):([0-5]\d)(\.\d{3})([+-]\d{4})$/ // e.g. 2024-10-13T02:30:03.000+0200   
+    // e.g. "2025-09-27T14:16:00.000+0200" or "2025-09-27T14:16:00.20+0200"
+    const dtregex = /^(\d{4})-([01]\d)-([0123]\d)(T| )([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(\.\d{1,3})([+-]\d{4})$/ // e.g. 2024-10-13T02:30:03.000+0200 or 2024-10-13T02:30:03.20+0200
     matches = input.match(dtregex);
-    if (matches) { // input is a timestamp with a numeric offset
+    if (matches) { // input is a timestamp with a numeric offset        
+        if (precisionAsked !== undefined) { // n.b. only scale= is considered, not prec=. Warn if prec is set!
+            logit(`WARNING: precision=${precisionAsked} is currently ignored for DATE-TIME input, use scale=0..4 to specify the number of time parts to keep (0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds). ${strVerb}`);
+        }
+        debugEnabled = true; // only for testing purposes
+
         const [ , yy, mo, dd, timesep, hh, mm, ss, dotms, tzoffset ] = matches // slice the matches into variables
-        const ms = parseInt(dotms.slice(1), 10)  // ".123" -> 123
+        const ms = parseInt(dotms.slice(1).padEnd(3, "0"), 10)  // ".2" -> 200, ".20" -> 200, ".123" -> 123
+        const dparts = [ yy, mo, dd, hh, mm, ss, ms ]
 
         // parse the offset +HHMM / -HHMM to minutes
         const offsetMinutes = (tzoffset[0] === '-' ? -1 : 1) * (parseInt(tzoffset.slice(1, 3), 10) * 60 + parseInt(tzoffset.slice(3, 5), 10))
 
-        // default time-date scale levels in significant.js: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
+        // time-date scale levels, round to: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
         scaleAsked = clamp(scaleAsked ?? 3, [0, 4])  // clamp scaleAsked to [0..4] with a default scale of 3
-
+        // determine fractional part of scaleAsked
+        var frac = roundTo(scaleAsked - floor(scaleAsked), 1) // split off the fractional part from the precisionSeeked (1 digit)
+        // scaleAsked = floor(scaleAsked)
+        debugit(`  DATE-TIME INPUT: scaleAsked=${scaleAsked}, frac=${frac}`);
         const localUtcMs = Date.UTC(+yy, +mo - 1, +dd, +hh, +mm, +ss, +ms) // local wall time -> UTC epoch ms (treat tzoffset as a fixed-offset zone)
         const utcMs      = localUtcMs - offsetMinutes * 60 * 1000
-        const unitMs     = [24*3600e3, 3600e3, 60e3, 1e3, 1][scaleAsked] // choose rounding unit: day, hour, minute, second, millisecond
-        const roundedUtc = round(utcMs / unitMs) * unitMs // round in UTC, not in local wall time
+        const unitMs     = [24 * 3600 * 60 * 1e3,  3600 * 60 * 1e3,  60 * 1e3, 1e3, 1][round(scaleAsked)] // choose rounding unit: day, hour, minute, second, millisecond
+        const roundedUtc = floor(utcMs / unitMs) * unitMs // round in UTC, not in local wall time
         const localMs    = roundedUtc + offsetMinutes * 60 * 1000 // convert back to local wall time with the same fixed offset
         const dLoc = new Date(localMs)
-        // now read components using UTC getters (we already applied the offset):
-        let output =                   `${dLoc.getUTCFullYear()  }` + "-"
-            +                          `${dLoc.getUTCMonth() + 1 }`.padStart(2, "0")  + "-"
-            +                          `${dLoc.getUTCDate()      }`.padStart(2, "0")  + timesep
-            + (scaleAsked < 1 ? "00" : `${dLoc.getUTCHours()     }`.padStart(2, "0")) + ":"
-            + (scaleAsked < 2 ? "00" : `${dLoc.getUTCMinutes()   }`.padStart(2, "0")) + ":"
-            + (scaleAsked < 3 ? "00" : `${dLoc.getUTCSeconds()   }`.padStart(2, "0"))
-            + (scaleAsked < 4 ? ""   : "." + String(dLoc.getUTCMilliseconds()).padStart(3, "0"))
-            + tzoffset;
+        debugit(`  TIME input: ${input} is local time ${dLoc.toISOString()} with offset ${tzoffset} (${offsetMinutes} min), rounding to scale=${scaleAsked} (unit ${unitMs})`);
 
-        if (input !== output || alwaysLogFinal || debugFinal || verboseAsked) {
+        let mytime = [
+            String(yy).padStart(4, "0"), // year
+            String(mo).padStart(2, "0"), // month
+            String(dd).padStart(2, "0"), // day 
+            String(hh).padStart(2, "0"), // hour
+            String(mm).padStart(2, "0"), // minute
+            String(ss).padStart(2, "0"), // second
+            String(ms).padStart(3, "0")  // millisecond
+        ];
+        let maxvals = [9999, 12, 31, 23, 59, 59, 999] // maximum values for each time part
+        let v = 0; // will hold the value of the time part to be rounded
+        let step = 1;
+        frac *= 10
+        const paddings = DATE_TIME_SCALE_MAP.get("paddings") // length for zero padding for each time part
+        const scaleFloor = floor(scaleAsked)
+        const keepIndex = scaleFloor + 2 // scale 0..4 maps to day..millisecond in mytime/dparts
+        const roundedIndex = keepIndex + 1 // fractional scales round the next-smaller time part
+        const steps = DATE_TIME_SCALE_MAP.get("steps").get(scaleFloor) ?? [] // get the steps for the current scaleAsked, or an empty array if not defined
+        step = steps[frac] ?? 1 // get the step for the current frac, or 1 if not defined
+        v = (roundedIndex < dparts.length) ? Number(dparts[roundedIndex]) : 0
+        if (step > 1 && roundedIndex < dparts.length) {
+            v = floor(v / step) * step
+            debugit(`  Rounding time part ${roundedIndex} to steps of ${step} due to scaleAsked=${scaleAsked} with frac=${frac}: v=${v}`)
+        }
+        let savetime = mytime.slice(); // create a copy of mytime
+        for (let i = keepIndex + 1; i < mytime.length; i++) { // zero all parts smaller than the kept one
+            mytime[i] = "0".repeat(paddings[i])
+        }
+        if (frac > 0 && roundedIndex < mytime.length) {
+            mytime[roundedIndex] = String(v).padStart(paddings[roundedIndex], "0")
+        }
+        debugit(` old=${savetime.slice(0, 3).join("")}T${savetime.slice(3).join(",")} frac=${frac} step=${step} v=${v}`);
+        debugit(` new=${mytime.slice(0, 3).join("")}T${mytime.slice(3).join(",")} frac=${frac} step=${step} v=${v}`);
+
+        // put together output
+        let output = `${mytime[0]}-${mytime[1]}-${mytime[2]}${timesep}${mytime[3]}:${mytime[4]}:${mytime[5]}${ scaleAsked>3 ? "." + mytime[6] : ""}${tzoffset}` // construct the output string with the same format as the input, but with time parts zeroed out according to scaleAsked
+
+        if (input !== output || alwaysLogFinal || verboseAsked) {
             // log only differences between input and output date-time strings and differing string suffixes of input and output
-            logit(`DATE-TIME: ${input} -> ${output}: ${suffixDiff(input, output).aSuffix}  ${strVerb}`);
+            logit(`  DATE-TIME: ${input} -> ${output}, diff=${suffixDiff(input, output).aSuffix}  ${strVerb}`);
         }
         return output // early return with the transformed date-time string
     }
