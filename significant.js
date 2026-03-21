@@ -233,7 +233,7 @@ function significantTransform(i, opts = {}) {
     // input = ".09870"
     // input = "-0.19870"
 
-    // If the input looks like a DATE-TIME string: scale the time part to a number of significant time parts (days, hours, minutes, seconds, ...):
+    // If the input matches a DATE-TIME string: scale the time part to a number of significant time parts (days, hours, minutes, seconds, ...):
     // e.g. "2025-09-27T14:16:00.000+0200" or "2025-09-27T14:16:00.20+0200"
     const dtregex = /^(\d{4})-([01]\d)-([0123]\d)(T| )([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(\.\d{1,3})([+-]\d{4})$/ // e.g. 2024-10-13T02:30:03.000+0200 or 2024-10-13T02:30:03.20+0200
     matches = input.match(dtregex);
@@ -254,18 +254,12 @@ function significantTransform(i, opts = {}) {
         scaleAsked = clamp(scaleAsked ?? 3, [0, 4])  // clamp scaleAsked to [0..4] with a default of 3
         var frac = roundTo(scaleAsked - floor(scaleAsked), 1)
         debugit(`  DATE-TIME INPUT: scaleAsked=${scaleAsked}, frac=${frac}`);
-        // Round the absolute instant in UTC, then render it again with the same fixed offset.
-        // This keeps sub-day bucket rounding simple and correct for cases like 20 s or 500 ms.
-        // Known limitation: day rounding is still based on UTC bucket boundaries rather than local-midnight boundaries.
-        // That tradeoff is accepted here for now.
+        // DATE-TIME rounding is done directly on the fixed-offset local parts below.
 
         frac = round(frac * 10) // convert fractional scale to an index for the steps array, e.g. 0.5 -> 5, 0.25 -> 2.5 -> 3
         const scaleFloor = clamp(floor(scaleAsked), [0, 4]) // the main scale level to keep (0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds)
-        const scaleNames = ["days", "hours", "minutes", "seconds", "milliseconds"]
-        const roundedIndex = scaleFloor + 3 // fractional scales round the next-smaller time part
         const steps = DATE_TIME_SCALE_MAP.get("steps").get(scaleFloor) ?? [] // get the steps for the current scaleAsked, or an empty array if not defined
         const step = steps[frac] ?? 1 // get the step for the current fraction, or 1 if not defined
-        debugit(`  TIME ONE: ${input} is rounded in fixed-offset local parts with offset ${tzoffset} (${offsetMinutes} min), keep=${scaleNames[scaleFloor]}, step=${step}, roundedIndex=${roundedIndex}`)
 
         // in parallel: follow the alternative approach of rounding by dividing the local time by the step size in ms, rounding, and multiplying back, to verify that the step rounding works as expected for all time parts and fractional scales. This is needed since the step rounding for time parts is a bit more complex than just zeroing out smaller parts, e.g. for 30 min steps, 14:16 would round to 14:00, but 14:46 would round to 15:00.
         const roundingUnitMs = [24 * 3600 * 1e3, 3600 * 1e3, 60 * 1e3, 1e3, 1][Math.ceil(scaleAsked)] // choose rounding unit: day, hour, minute, second, millisecond
@@ -275,28 +269,31 @@ function significantTransform(i, opts = {}) {
         const roundedLocalInstant = new Date(roundedTime).toISOString().replace("Z", tzoffset)
         debugit(`  TIME ALTERNATIVE: ${roundedLocalInstant} with offset ${tzoffset} (${offsetMinutes} min), rounding to scale=${scaleAsked} (unit ${roundingUnitMs}*${step})`)
 
-        let roundedPartValue = (roundedIndex < numericTimeParts.length) ? Number(numericTimeParts[roundedIndex]) : 0
-        if (step > 1 && roundedIndex < numericTimeParts.length) {
-            roundedPartValue = floor(roundedPartValue / step) * step
-            debugit(`  Rounding time part ${roundedIndex} to steps of ${step} due to scaleAsked=${scaleAsked} with frac=${frac}: v=${roundedPartValue}`)
-        }
-        const roundedTimeParts = numericTimeParts.slice()
-        for (let i = roundedIndex; i < roundedTimeParts.length; i++) { // zero all parts smaller than the kept one
-            roundedTimeParts[i] = 0
-        }
-        if (frac > 0 && roundedIndex < roundedTimeParts.length) {
-            roundedTimeParts[roundedIndex] = roundedPartValue
-        }
-        const paddings = DATE_TIME_SCALE_MAP.get("paddings") // length for zero padding for each time part
-        const originalTimeParts = numericTimeParts.map((part, index) => String(part).padStart(paddings[index], "0"))
-        const timeParts = roundedTimeParts.map((part, index) => String(part).padStart(paddings[index], "0"))
-        debugit(` old=${formatDateTimeParts(originalTimeParts)} frac=${frac} step=${step} v=${roundedPartValue}`);
-        debugit(` new=${formatDateTimeParts(timeParts)} frac=${frac} step=${step} v=${roundedPartValue}`);
+        if (1===9) { // trigger debugging
+            let roundedPartValue = (roundedIndex < numericTimeParts.length) ? Number(numericTimeParts[roundedIndex]) : 0
+            if (step > 1 && roundedIndex < numericTimeParts.length) {
+                roundedPartValue = floor(roundedPartValue / step) * step
+                debugit(`  Rounding time part ${roundedIndex} to steps of ${step} due to scaleAsked=${scaleAsked} with frac=${frac}: v=${roundedPartValue}`)
+            }
+            const roundedTimeParts = numericTimeParts.slice()
+            for (let i = roundedIndex; i < roundedTimeParts.length; i++) { // zero all parts smaller than the kept one
+                roundedTimeParts[i] = 0
+            }
+            if (frac > 0 && roundedIndex < roundedTimeParts.length) {
+                roundedTimeParts[roundedIndex] = roundedPartValue
+            }
+            const paddings = DATE_TIME_SCALE_MAP.get("paddings") // length for zero padding for each time part
+            const originalTimeParts = numericTimeParts.map((part, index) => String(part).padStart(paddings[index], "0"))
+            const timeParts = roundedTimeParts.map((part, index) => String(part).padStart(paddings[index], "0"))
+            debugit(` old=${formatDateTimeParts(originalTimeParts)} frac=${frac} step=${step} v=${roundedPartValue}`);
+            debugit(` new=${formatDateTimeParts(timeParts)} frac=${frac} step=${step} v=${roundedPartValue}`);
 
-        // const output = `${timeParts[0]}-${timeParts[1]}-${timeParts[2]}${timesep}${timeParts[3]}:${timeParts[4]}:${timeParts[5]}${scaleAsked > 3 ? "." + timeParts[6] : ""}${tzoffset}`
-        // construct from alternative path:
-        const output = roundedLocalInstant // .toISOString().replace("Z", tzoffset) // replace the "Z" in the ISO string with the original fixed offset
-
+            // const output = `${timeParts[0]}-${timeParts[1]}-${timeParts[2]}${timesep}${timeParts[3]}:${timeParts[4]}:${timeParts[5]}${scaleAsked > 3 ? "." + timeParts[6] : ""}${tzoffset}`
+        } else {
+            // construct from new alternative path:
+            const output = roundedLocalInstant // .toISOString().replace("Z", tzoffset) // replace the "Z" in the ISO string with the original fixed offset
+        }
+     
         if (input !== output || alwaysLogFinal || verboseAsked) {
             // log only differences between input and output date-time strings and differing string suffixes of input and output
             logit(`FINAL: ${input} -> ${output}, diff=${suffixDiff(input, output).aSuffix}  ${strVerb}`);
