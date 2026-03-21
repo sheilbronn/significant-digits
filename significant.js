@@ -33,7 +33,7 @@ var verboseAsked     = false; // if default set to true here, script will always
 var testingAsked     = false; // if default set to true here, script will always support be set to "testing of new features"
 var dryRunAsked      = false; // if set to true, the script will not return the transformed value but rather the input value and log the would-be transformation result for testing purposes
 var debugEnabled     = false; // if default set to true here, script will always log debug messages
-var flickerEnabled   = false; // if default set to true here, output will always have a tiny, random fraction added to distinguish it from the previous value. This helps debugging
+var flickerEnabled   = false; // if default set to true here, output will always have a tiny, small random value added to distinguish it from the previous value. This helps debugging
 var verboseIncreased = false; // if true and verbose is true, then log even more details
 var alwaysLogFinal   = false; // if set to true, always log the final output of the transformation (set to true for first timers!)
 
@@ -148,6 +148,7 @@ function significantTransform(i, opts = {}) {
     debugEnabled = false;
     flickerEnabled = false;
     verboseIncreased = false;
+    alwaysLogFinal   = true; // !! default to true for first timers, to log the final output of the transformation, can be set to false for regular use to avoid log flooding with unchanged values
 
     // more vars to carry values of the injected parameters:
     var precisionAsked  = undefined // will carry the requested number of significant figures
@@ -233,8 +234,8 @@ function significantTransform(i, opts = {}) {
     // input = ".09870"
     // input = "-0.19870"
 
-    // If the input matches a DATE-TIME string: scale the time part to a number of significant time parts (days, hours, minutes, seconds, ...):
-    // e.g. "2025-09-27T14:16:00.000+0200" or "2025-09-27T14:16:00.20+0200"
+    // Special case: If the input matches a DATE-TIME string: scale the time part to a number of *significant time parts *
+    // (days, hours, minutes, seconds, ...), e.g. "2025-09-27T14:16:00.000+0200" or "2025-09-27T14:16:12.20+0200"
     const dtregex = /^(\d{4})-([01]\d)-([0123]\d)(T| )([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(\.\d{1,3})([+-]\d{4})$/ // e.g. 2024-10-13T02:30:03.000+0200 or 2024-10-13T02:30:03.20+0200
     matches = input.match(dtregex);
     if (matches) { // input is a timestamp with a numeric offset
@@ -243,14 +244,13 @@ function significantTransform(i, opts = {}) {
         }
         // debugEnabled = true; // only for testing purposes
 
-        const [ , yy, mo, dd, , hh, mm, ss, dotms, tzoffset ] = matches // slice the matches into variables
+        const [ , yy, mo, dd, , hh, mm, ss, dotms, tzoffset ] = matches // slice the matches into the time parts
         const ms = parseInt(dotms.slice(1).padEnd(3, "0"), 10)  // ".2" -> 200, ".20" -> 200, ".123" -> 123
 
-        // time-date scale levels, round to: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
+        // time-date scale levels are: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
         scaleAsked = clamp(scaleAsked ?? 3, [0, 4])  // clamp scaleAsked to [0..4] with a default of 3
-        const frac = roundTo(scaleAsked - floor(scaleAsked), 1)
-        debugit(`  DATE-TIME INPUT: scaleAsked=${scaleAsked}, frac=${frac}`);
-        const scaleFloor = floor(scaleAsked)
+        const [scaleFloor, frac] = splitScaleValue(scaleAsked)
+        debugit(`  DATE-TIME INPUT: scaleAsked=${scaleAsked} > scaleFloor=${scaleFloor}, frac=${frac}`);
         const step = DATE_TIME_SCALE_MAP.get("steps").get(scaleFloor)?.[round(frac * 10)] ?? 1
 
         // Divide the (fake, UTC'ed) time by (roundingUnitMs*step size), round and multiply it back. 
@@ -585,7 +585,7 @@ function significantTransform(i, opts = {}) {
     case "MiB":
     case "KiB":
     case "B":
-        debugFinal = false; // FIXME: do not always log final if div with SCALING is used, to avoid log flooding with swap size logging
+        alwaysLogFinal = false; // FIXME: do not always log final (unless verboseAsked) if div with SCALING is used, to avoid log flooding with swap size logging
         precisionSeeked = 2
         unitPrefixes = undefined; // don't normalize memory sizes
         break;
@@ -653,7 +653,7 @@ function significantTransform(i, opts = {}) {
         newValue = newValue % 360 // normalize into range [0..360)
         debugit(`Angle: v=${v}, value=${value}° (${compassAngleToDir(value,precisionSeeked)}), newValue=${newValue}° (${compassAngleToDir(newValue,precisionSeeked)}), anglediv=${angledivider} ${strVerb}`);
     } else if (value === 0) {
-        debugFinal = false; // avoid logging final zero values unless verboseAsked
+        alwaysLogFinal = false; // avoid logging final zero values unless verboseAsked
     } else {
         if (divAsked != null) {
             value /= divAsked // apply the divisor if given
@@ -665,33 +665,27 @@ function significantTransform(i, opts = {}) {
         }
 
         // Now take care of all the significant figure rounding...
-        var frac = roundTo(precisionSeeked - floor(precisionSeeked), 1) // split off the fractional part from the precisionSeeked (1 digit)
-        precisionSeeked = floor(precisionSeeked)
-        var magnit = undefined;
-        var power  = undefined;
-        magnit = magniTude(value)  // magnitude is 0 for 1-9, 1 for 10-99, 2 for 100-999 and so on....
-        power = Math.pow(10, magnit - precisionSeeked + 1) // when prec=1: power is 100 for prec=2 and value=349 (magnit=2)
+        var [precisionSeeked, frac] = splitScaleValue(precisionSeeked) // split any fractional part from the precisionSeeked (1 digit)
+        var magnit = magniTude(value)  // magnitude is 0 for 1-9, 1 for 10-99, 2 for 100-999 and so on....
+        var power = Math.pow(10, magnit - precisionSeeked + 1) // when prec=1: power is 100 for prec=2 and value=349 (magnit=2)
         debugit(`=== value=${value} ${unit_i} Seeked=${precisionSeeked} AND Found=${precisionFound}, magnit=${magnit} power=${power} frac=${frac} ${strVerb}`);
         // ... and do the magic for the fractional part in precisionSeeked:
         if (frac > 0 && precisionFound > precisionSeeked) {
-            frac = frac > 0.5 ? roundTo(1 - frac, 1) : frac; // mirror ... 
             if (frac === 0.1) {
                 warnit(`prec is valued at ${precisionSeeked} + 0.1, same as prec=${precisionSeeked + 1}, consider using integer precisions only.`);
             }            
-            var rounded = 0
             debugit(` == Rounding value=${value} with frac=${frac}, precisionSeeked=${precisionSeeked} ${strVerb}`);
             let mult = clamp(Math.ceil(1/frac), [2, 5]) // mult is 2 for frac=0.5, 3 for frac=0.4, 4 for frac=0.3, 5 for frac=0.2
             let sign = Math.sign(value)
-            // debugit(`  frac=${frac} -> mult=${mult}`);
             newValue = sign * floor(abs(value) / power) * power // cut off to the integer part with the given precision
             let normalizedvalue = sign * (value-newValue) / Math.pow(10, magnit - precisionSeeked)  // normalize the value to be between 1 and 10
             debugit(` normalizedvalue=${normalizedvalue} (value=${value}, newValue=${newValue}, sign=${sign})`);
 
-            // taking a certain mult, iterate the borders to find the right one:
-            let borders = BORDERS0[mult]; // borders for values for main figures equal to 0
+            // for a certain mult: iterate the borders to find the right border for the normalized value, and then use the corresponding middle value as the rounded part to add to the newValue:
+            let borders = BORDERS0[mult]; // initialize borders for values for main figures equal to 0
             let middles = MIDDLES0[mult];
             if (abs(newValue) < 1e-10) { // treat any rounding errors as 0
-                // now distinguish the corner cases of not putting unneeded figures to a newValue that already has enough significant figures
+                // Distinguish the case where the main rounded part is effectively zero from non-zero values.
                 debugit(` newValue=${newValue}: Choose MIDDLES0`);
             } else {
                 borders = BORDERS1[mult];  // for precision fractions with a main value different from 0
@@ -702,7 +696,7 @@ function significantTransform(i, opts = {}) {
             debugit(` Finding rounded value for normalizedvalue=${normalizedvalue}, mult=${mult} (frac=${frac}) in borders=${borders}`);
             while (i < borders.length && normalizedvalue > borders[i]) 
                 i++;
-            rounded = middles[i]
+            const rounded = middles[i]
             newValue = newValue + sign * rounded * Math.pow(10, magnit - precisionSeeked) // add the rounded part to the newValue
             newValue = Number(newValue.toPrecision(precisionSeeked+1))
             debugit(` ROUNDED=${rounded} for newValue=${newValue} BECAUSE border[${i}]=${i === 0 ? 0 : borders[i-1]} for mult=${mult} (frac=${frac}) i=${i}`);
@@ -725,8 +719,8 @@ function significantTransform(i, opts = {}) {
                 // adapt value and unit dimension according to the amount of scale3
                 newValue = newValue / Math.pow(10, 3*scale3)
                 finalUnit = unitPrefixes[baseUnitIndex + scale3] + unit_i
-                if (scaleSeeked !== null) {
-                    scaleSeeked =+ 3*scale3 // also adapt scaleSeeked, if given
+                if (scaleSeeked != null) { // covers the case where scaleSeeked is 0 or undefined
+                    scaleSeeked += 3*scale3 // adapt scaleSeeked according to the amount of scaling applied, since the number is now smaller and needs less decimals
                 }
                 debugit(` NORMALIZE: scale3=${scale3} * 3 applied to magnit=${magnit}: newValue=${newValue} finalUnit=${finalUnit}`);
                 scale3=0 // since we chose the fitting unit
@@ -789,10 +783,6 @@ function suffixDiff(a, b) {
   while (pos < min(a.length, b.length) && a[pos] === b[pos]) pos++; // find position of first differing character
 
   return { aSuffix: a.slice(pos), bSuffix: b.slice(pos) };
-}
-
-function formatDateTimeParts(parts) {
-        return `${parts[0]}${parts[1]}${parts[2]}T${parts[3]},${parts[4]},${parts[5]},${parts[6]}`;
 }
 
 // isWithin(): check if value is within any of the given ranges - ranges can be given as [min, max) or as [center, halfwidth]
@@ -920,6 +910,15 @@ function parseScaledNumber(raw, label) {
 // setDefault(): return defaultValue if value is undefined; if defaultValue is a function, call it with the value
 function setDefault(value, defaultValue) {
     return typeof defaultValue === 'function' ?  defaultValue(value)  :  (value !== undefined) ? value : defaultValue;
+}
+
+// splitScaleValue(): split a scale value into its integer and fractional part, 
+// and mirror the fractional part at 0.5 if it islarger than 0.5 to get nicer rounding steps (e.g. 1, 2, 5, 10) for the fractional part than for values close to 1 (e.g. 0.8 with steps 1, 4, 6, 8)
+function splitScaleValue(scaleval) {
+    var frac = roundTo(scaleval - floor(scaleval), 1)
+    frac = frac > 0.5 ? roundTo(1 - frac, 1) : frac; // mirror the fractional part at 0.5 if larger
+    scaleval = floor(scaleval)
+    return [ scaleval, frac  ];
 }
 
 // compassAngleToDir(): convert degrees to compass direction: N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW

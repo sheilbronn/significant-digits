@@ -20,7 +20,7 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 - Supports **unit forcing or removal** (`unit=°C`, `unit=.`)
 - Pre-rounding adjustments: `div=`, `mult=`, `skew=`
 - Optional **SI unit conversion** (`si=true`): °F→°C, mph→km/h, etc.
-- Handles **date-time values** (with `scale=2` for minutes (0=days, 1=hours, 2=minutes, 3=seconds, and 4=milliseconds)
+- Handles **date-time values** (with `scale=2` for minutes (0=days, 1=hours, 2=minutes, 3=seconds, and 4=milliseconds). Fractional values are also supported, e.g. 2.5 for multiples of 30 seconds)
 - Handles **angle values** in the sense of "quadrants/octants" and returns the middle of the quadrant/octant etc. (catering for wind directions, such as NO or SSW)
 - Adapts the **dimension** of the unit to indicate the amount of significant figures visually, e.g. 1025506 Wh become 1.03 MWh for 3 significant digits and 1026 kWh for 4 digits.
 - Converts **textual intervals** to numbers ( "1-2" → 1.5, "3-5" → 4, as needed for e.g. [dwdpollen](https://www.openhab.org/addons/bindings/dwdpollenflug)
@@ -122,10 +122,10 @@ JS:significant.js?unit=.
 ### 6. Round a date-time string to minutes
 
 ```ini
-JS:significant.js?scale=2
+JS:significant.js?scale=2.5
 ```
 
-Input: `2025-09-27T14:16:28.000+0200` → Rounds to `14:16`
+Input: `2025-09-27T14:16:28.000+0200` → rounds to `2025-09-27T14:16:30.000+0200`
 
 ---
 
@@ -135,7 +135,7 @@ Input: `2025-09-27T14:16:28.000+0200` → Rounds to `14:16`
 - Precision count falls back to sensible defaults; three digits for a missing unit
 - Higher default precision around important real-world values, e.g. 50 Hz, 980 mbar, 0 °C etc.
 - Fractional `precision` values allow halfway rounding (e.g., `1.5` gives x.5)
-- This script might work on openHAB 4.X, too - haven't tried - feedback welcome!
+- This script might work on old openHAB 4.X, too - haven't tried - feedback welcome!
 
 ---
 
