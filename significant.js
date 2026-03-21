@@ -269,6 +269,7 @@ function significantTransform(i, opts = {}) {
         const roundedLocalInstant = new Date(roundedTime).toISOString().replace("Z", tzoffset)
         debugit(`  TIME ALTERNATIVE: ${roundedLocalInstant} with offset ${tzoffset} (${offsetMinutes} min), rounding to scale=${scaleAsked} (unit ${roundingUnitMs}*${step})`)
 
+        var output = "" // will hold the final output value to be returned at the end of the function
         if (1===9) { // trigger debugging
             let roundedPartValue = (roundedIndex < numericTimeParts.length) ? Number(numericTimeParts[roundedIndex]) : 0
             if (step > 1 && roundedIndex < numericTimeParts.length) {
@@ -288,10 +289,10 @@ function significantTransform(i, opts = {}) {
             debugit(` old=${formatDateTimeParts(originalTimeParts)} frac=${frac} step=${step} v=${roundedPartValue}`);
             debugit(` new=${formatDateTimeParts(timeParts)} frac=${frac} step=${step} v=${roundedPartValue}`);
 
-            // const output = `${timeParts[0]}-${timeParts[1]}-${timeParts[2]}${timesep}${timeParts[3]}:${timeParts[4]}:${timeParts[5]}${scaleAsked > 3 ? "." + timeParts[6] : ""}${tzoffset}`
+            output = `${timeParts[0]}-${timeParts[1]}-${timeParts[2]}${timesep}${timeParts[3]}:${timeParts[4]}:${timeParts[5]}${scaleAsked > 3 ? "." + timeParts[6] : ""}${tzoffset}`
         } else {
             // construct from new alternative path:
-            const output = roundedLocalInstant // .toISOString().replace("Z", tzoffset) // replace the "Z" in the ISO string with the original fixed offset
+            output = roundedLocalInstant // .toISOString().replace("Z", tzoffset) // replace the "Z" in the ISO string with the original fixed offset
         }
      
         if (input !== output || alwaysLogFinal || verboseAsked) {
