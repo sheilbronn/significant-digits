@@ -2,7 +2,7 @@
 
 **significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a more *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on your context and your preferences.
 
-It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **date/time values**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality.
+It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality. It also works for **percentages** and **date/time values**.
 
 🧠 Smart enough to:
 
@@ -10,33 +10,35 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 - Reduce irrelevant "flicker"
 - Convert between units (e.g., °F → °C, mph → km/h, in → cm, …)
 - Special-case around important real-world values (e.g., 1000 mbar pressures, 0° C, 50 Hz, 110 V, 220 V, ...)
+- Handles [SI units](https://en.wikipedia.org/wiki/International_System_of_Units) as well as [Imperial units](https://en.wikipedia.org/wiki/Imperial_and_US_customary_measurement_systems).
 
 ---
 
 ## ✨ Features
 
-- **Context-aware rounding** based on units (significant figures)
+- **Context-aware rounding**, based on units (significant figures)
 - Optional **decimal scale rounding** (e.g. to integers)
 - Supports **unit forcing or removal** (`unit=°C`, `unit=.`)
 - Pre-rounding adjustments: `div=`, `mult=`, `skew=`
 - Optional **SI unit conversion** (`si=true`): °F→°C, mph→km/h, etc.
 - Handles **date-time values** (with `scale=2` for minutes (0=days, 1=hours, 2=minutes, 3=seconds, and 4=milliseconds). Fractional values are also supported, e.g. 2.5 for multiples of 30 seconds)
-- Handles **angle values** in the sense of "quadrants/octants" and returns the middle of the quadrant/octant etc. (catering for wind directions, such as NO or SSW)
+- Handles **angle values** in the sense of sectors such as "quadrants/octants" and returns the middle of the sector etc. (catering for wind directions, such as NO or SSW)
 - Adapts the **dimension** of the unit to indicate the amount of significant figures visually, e.g. 1025506 Wh become 1.03 MWh for 3 significant digits and 1026 kWh for 4 digits.
 - Converts **textual intervals** to numbers ( "1-2" → 1.5, "3-5" → 4, as needed for e.g. [dwdpollen](https://www.openhab.org/addons/bindings/dwdpollenflug)
-- Debug options like **flicker mode** and verbose logging
+- Debug options like **flicker mode** and verbose logging.
 
 ---
 
 ## 📦 Installation (openHAB)
 
-1. Install the [**JavaScript Scripting Addon**](https://www.openhab.org/addons/automation/jsscripting) add-on from the Addon Store in your openHAB web interface.
+1. First, install the [**JavaScript Scripting Addon**](https://www.openhab.org/addons/automation/jsscripting) add-on from the Addon Store in your openHAB web interface.
 2. Download `significant.js` into your transform folder - usually:
 
    ```bash
    /etc/openhab/transform/significant.js
    ```
-
+3. There should be no need to restart openHAB.
+4. 
 ---
 
 ## ⚙️ Usage
@@ -119,7 +121,7 @@ JS:significant.js?div=1K
 JS:significant.js?unit=.
 ```
 
-### 6. Round a date-time string to minutes
+### 6. Round a date-time string to multiples of 30 seconds
 
 ```ini
 JS:significant.js?scale=2.5
@@ -132,7 +134,7 @@ Input: `2025-09-27T14:16:28.000+0200` → rounds to `2025-09-27T14:16:30.000+020
 ## 📓 Design Notes
 
 - Works best with inputs like `"12.34"` or `"12.34 °C"`
-- Precision count falls back to sensible defaults; three digits for a missing unit
+- Precision count falls back to sensible defaults: two digits (~1%) for a value having no unit
 - Higher default precision around important real-world values, e.g. 50 Hz, 980 mbar, 0 °C etc.
 - Fractional `precision` values allow halfway rounding (e.g., `1.5` gives x.5)
 - This script might work on old openHAB 4.X, too - haven't tried - feedback welcome!
