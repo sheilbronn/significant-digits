@@ -1,15 +1,15 @@
 # 🌡️ significant.js — Human-friendly Sensor Values for openHAB
 
-**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a more *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C becomes a more sensible 6.5 °C, or even 6 °C, depending on your context and your preferences.
+**significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a more *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C should become a more sensible 6.5 °C, or even 6 °C, depending on your preferences and your context.
 
-It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality. It also works for **percentages** and **date/time values**.
+It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality. But it also works for **percentages** and **date/time values**.
 
 🧠 Smart enough to:
 
 - Handle all known openHAB units (°C, m/s, W, mph, hPa, s, … → see [list of UoM's](https://www.openhab.org/docs/concepts/units-of-measurement.html))
 - Reduce irrelevant "flicker"
 - Convert between units (e.g., °F → °C, mph → km/h, in → cm, …)
-- Special-case around important real-world values (e.g., 1000 mbar pressures, 0° C, 50 Hz, 110 V, 220 V, ...)
+- Higher precision defaults around some important real-world values (i.e. 1000 mbar pressures, 0° C, 50 Hz, 110 V, 220 V, ...)
 - Handles [SI units](https://en.wikipedia.org/wiki/International_System_of_Units) as well as [Imperial units](https://en.wikipedia.org/wiki/Imperial_and_US_customary_measurement_systems).
 
 ---
@@ -19,7 +19,7 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 - **Context-aware rounding**, based on units (significant figures)
 - Optional **decimal scale rounding** (e.g. to integers)
 - Supports **unit forcing or removal** (`unit=°C`, `unit=.`)
-- Pre-rounding adjustments: `div=`, `mult=`, `skew=`
+- Pre-rounding adjustments: `div=`, `mult=`, `offset=`
 - Optional **SI unit conversion** (`si=true`): °F→°C, mph→km/h, etc.
 - Handles **date-time values** (with `scale=2` for minutes (0=days, 1=hours, 2=minutes, 3=seconds, and 4=milliseconds). Fractional values are also supported, e.g. 2.5 for multiples of 30 seconds)
 - Handles **angle values** in the sense of sectors such as "quadrants/octants" and returns the middle of the sector etc. (catering for wind directions, such as NO or SSW)
@@ -71,22 +71,22 @@ Number:Temperature MyTemp "Temperature [%.1f %unit%]" {
 |---------------|----------|-------------|
 | `precision`   | number   | Forced number of significant figures (e.g., `2`) (With fractions, e.g. 2.7 for rounding to nm.0, nm.3, nm.7 n(m+1).0) |
 | `scale`       | number   | Forced number of max. decimal places (e.g., `scale=0` → whole numbers) |
-| `div`         | string   | Divide by number before rounding (`1K`, `1Mi`, etc.) |
-| `mult`        | number   | Multiply by number before rounding |
-| `skew`        | number   | Add offset before rounding (e.g. for midpoint rounding) |
-| `unit`        | string   | Force output unit (e.g. `°C`, or `.` to remove any) |
-| `si`          | boolean  | Convert to SI units (default: `true`) |
-| `flicker`     | boolean  | Add a tiny fraction to encourage state updates for debugging |
+| `div`         | string   | Divide by number before rounding (`1K`, `1Mi`, etc.)    |
+| `mult`        | number   | Multiply by number before rounding                      |
+| `offset`      | number   | Add an offset after dividing/multiplying and before rounding (e.g. for midpoint rounding) |
+| `unit`        | string   | Force output unit (e.g. `°C`, or `.` to remove any)     |
+| `si`          | boolean  | Convert to SI units (default: `true`)                   |
+| `flicker`     | boolean  | Add a tiny fraction to generate state updates for debugging |
 | `verbose`     | boolean  | Enable debug logging |
-| `testing`     | boolean  | Enable testing mode |
+| `testing`     | boolean  | Enable testing mode  |
 
-Valid Booleans are: `true`, `t`, `1`, `yes`, `y`, `on` for **true**, and everything else for **false**.
+Valid Booleans are: `true`, `t`, `1`, `yes`, `y`, `on` for **true**, and everything else is **false**.
 
 ---
 
 ## 🧪 Examples
 
-### 0. Round any sensor value to a sensible amount significant figures (default: 2)
+### 0. Round any sensor value to a sensible amount of significant figures (default: 2)
 
 ```ini
 JS:significant.js
@@ -110,10 +110,10 @@ JS:significant.js?scale=0
 JS:significant.js?unit=°C
 ```
 
-### 4. Pre-scale the input by 1000
+### 4. Pre-scale the input by 1000 and add an offset of +10
 
 ```ini
-JS:significant.js?div=1K
+JS:significant.js?div=1K&offset=10
 ```
 
 ### 5. Strip any unit
