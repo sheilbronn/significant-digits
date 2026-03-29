@@ -6,7 +6,7 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 
 🧠 Smart enough to:
 
-- Handle all known openHAB units (°C, m/s, W, mph, hPa, … → see [list of UoM's](https://www.openhab.org/docs/concepts/units-of-measurement.html))
+- Handle all known openHAB units (°C, m/s, W, mph, hPa, s, … → see [list of UoM's](https://www.openhab.org/docs/concepts/units-of-measurement.html))
 - Reduce irrelevant "flicker"
 - Convert between units (e.g., °F → °C, mph → km/h, in → cm, …)
 - Special-case around important real-world values (e.g., 1000 mbar pressures, 0° C, 50 Hz, 110 V, 220 V, ...)
@@ -38,7 +38,8 @@ It’s built for numeric state values such as from **temperature**, **humidity**
    /etc/openhab/transform/significant.js
    ```
 3. There should be no need to restart openHAB.
-4. 
+4. A version for the OpenHAB Add-on store has been prepared.
+
 ---
 
 ## ⚙️ Usage
@@ -48,7 +49,7 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 ```ini
 Number:Temperature MyTemp "Temperature [%.1f %unit%]" {
   channel="…"
-  [profile="transform:JS",toItemScript="JS:significant.js"]
+  [profile="transform:JS",toItemScript="JS:significant.js?precision=1.3"]
 }
 ```
 

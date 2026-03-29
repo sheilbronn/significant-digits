@@ -20,39 +20,36 @@
 // "scale"     : a number of decimal places to round to: ...?scale=0
 // "div"       : a divisor to apply to the input value before rounding: ...?div=10 oder 1M or 1000 (useful since OpenHAB only supports one transformation at a time)
 // "mult"      : a multiplier to apply to the input value before rounding: ...?mult=1K oder 1M oder 1000 (similar to div)
-// "unit"     : a unit to force the output to: ...?unit=°C (unit=. will remove any unit passed in the input)
-// "verbose"  : one of {t|true|1|yes|y||false|no} to enable or disable logging: ...?verbose=true
-// "testing"  : {t|true|1|yes|y||false|no} to enable or disable testing of new features: ...?testing=y
-// "skew"     : a number to add to the input value before rounding,: ...?skew=0.5 (e.g. for 0.5 significant figures)
+// "unit"      : a unit to force the output to: ...?unit=°C (unit=. will remove any unit passed in the input)
+// "verbose"   : one of {t|true|1|yes|y||false|no} to enable or disable logging: ...?verbose=true
+// "testing"   : {t|true|1|yes|y||false|no} to enable or disable testing of new features: ...?testing=y
+// "offset"    : a number to add to the input value before rounding,: ...?offset=0.5
 
 // Not implemented (yet):
 // "mode"    : specify the rounding mode (e.g. "up", "down", "half-up", "half-down", "half-even", etc.) for the significant figure rounding, half-up is the default for now
 
-// Defaults and global variables:
+// Some global variables:
 var verboseAsked     = false; // if default set to true here, script will always log some details about the transformation
 var testingAsked     = false; // if default set to true here, script will always support be set to "testing of new features"
-var dryRunAsked      = false; // if set to true, the script will not return the transformed value but rather the input value and log the would-be transformation result for testing purposes
 var debugEnabled     = false; // if default set to true here, script will always log debug messages
-var flickerEnabled   = false; // if default set to true here, output will always have a tiny, small random value added to distinguish it from the previous value. This helps debugging
 var verboseIncreased = false; // if true and verbose is true, then log even more details
-var alwaysLogFinal   = false; // if set to true, always log the final output of the transformation (set to true for first timers!)
 
-var id         = "";                 // an optional id string to identify the invocation in the log messages
+var ident         = "";                 // an optional ident string to identify the invocation in the log messages
 var scriptname = "significant.js: "; // will hold the script name for logging
-var genericUnitPrefixes = Object.freeze(["µ", "m", "", "k", "M", "G", "T", "P", "E"]); // generic prefixes for normalization
+var genericUnitPrefixes = Object.freeze(["n", "µ", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"]); // generic prefixes for normalization
 var SCALE_AMOUNT_MAP = Object.freeze({
     "": 1, k: 1e3, K: 1024, ki: 1024, M: 1e6, Mi: 1024 ** 2, G: 1e9, Gi: 1024 ** 3, T: 1e12, Ti: 1024 ** 4, P: 1e15, Pi: 1024 ** 5,
 });
 var DATE_TIME_SCALE_MAP = new Map([
     ["paddings", [4, 2, 2, 2, 2, 2, 3]],
-    ["steps", new Map([
-        [-3, [1, 1, 2, 3, 4, 6]], // for fractional year rounding, e.g. to 5y, 4y, 3y, 2y steps
-        [-2, [1, 1, 5, 8, 10, 15]], // for fractional month rounding, e.g. to 6m, 4m, 3m, 2m steps
-        [-1, [1, 1, 2, 2, 3, 3]], // for fractional day rounding, e.g. to 2d, 3d, 4d, 5d, 6d, 7d, 8d, 9d steps
-        [0, [1, 2, 4, 6, 8, 12]], // for fractional hour rounding, e.g. to 12h, 8h, 6h, 4h, 2h steps
-        [1, [1, 5, 10, 15, 20, 30]], // for fractional minute rounding, e.g. to 30min, 20min, 15min, 10min, 5min steps
-        [2, [1, 5, 10, 15, 20, 30]], // for fractional second rounding, e.g. to 30s, 20s, 15s, 10s, 5s steps
-        [3, [1, 100, 125, 250, 333, 500]] // for fractional millisecond rounding, e.g. to 500ms, 333ms, 250ms, 125ms, 100ms steps
+    ["steps", new Map([               // for fractional of ...
+        [-3, [1, 1,  2,  3,  4,  6]], // years, e.g. to 5y, 4y, 3y, 2y steps
+        [-2, [1, 1,  5,  8, 10, 15]], // months, e.g. to 6m, 4m, 3m, 2m steps
+        [-1, [1, 1,  2,  2,  3,  3]], // days, e.g. to 2d, 3d, 4d, 5d, 6d, 7d, 8d, 9d steps
+        [0,  [1, 2,  4,  6,  8, 12]], // hours, e.g. to 12h, 8h, 6h, 4h, 2h steps
+        [1,  [1, 5, 10, 15, 20, 30]], // minutes, e.g. to 30min, 20min, 15min, 10min, 5min steps
+        [2,  [1, 5, 10, 15, 20, 30]], // seconds, e.g. to 30s, 20s, 15s, 10s, 5s steps
+        [3,  [1, 100, 125, 250, 333, 500]] // milliseconds, e.g. to 500ms, 333ms, 250ms, 125ms, 100ms steps
     ])],
 ]);
 
@@ -77,7 +74,7 @@ var BORDERS0 = Object.freeze({ // for precision fractions with a main (=integer)
   2: [3, 7.5],
   3: [2, 4.5, 8],
   4: [1.5, 3.5, 6, 8.5],
-  5: [1.5, 3,  5, 7, 9]
+  5: [1.5, 3  , 5, 7, 9]
  });
 var MIDDLES0 = Object.freeze({
   2: [1, 5, 10],
@@ -126,38 +123,32 @@ All metric prefixes (mA, cm, kW, …) and binary prefixes (kiB, MiB, …) are su
 */
 
 // Frequently used Math functions:
-var abs   = Math.abs;
-var min   = Math.min;
-var max   = Math.max;
-var floor = Math.floor;
-var round = Math.round;
+var { abs, min, max, floor, round } = Math;
 
 // Now the main function called by OpenHAB when the transformation is invoked:
-function significantTransform(i, opts = {}) {
+function significantTransformed(i, opts = {}) {
 
-    let input     = String(i ?? "").trim(); // store the incoming value (and optionally unit name) to be transformed
-    let unit_i    = "" // will carry the unit name in the input i (if any)
-    let strVerb   = "" // will carry the message string for logging
-    let matches   = null // will be used for regex matches
-    id            = opts.id ?? ""; // an optional id string to identify the invocation in the log messages
-
-    // reset on each invocation (prevents cross-call leakage) - FIXME: is this still needed in openHAB 5?
+    let input   = String(i ?? "").trim(); // store the incoming value (and optionally unit name) to be transformed
+    let unit_i  = ""   // will carry the unit name in the input i (if any)
+    let strVerb = ""   // will carry the message string for logging
+    let matches = null // will be used for regex matches
+ 
+    // reset on each invocation (prevents cross-call leakage) - FIXME: check whether this is still needed in openHAB 5?
     verboseAsked = false;
     testingAsked = false;
-    dryRunAsked  = false;
     debugEnabled = false;
-    flickerEnabled = false;
     verboseIncreased = false;
-    alwaysLogFinal   = true; // !! default to true for first timers, to log the final output of the transformation, can be set to false for regular use to avoid log flooding with unchanged values
 
     // more vars to carry values of the injected parameters:
     var precisionAsked  = undefined // will carry the requested number of significant figures
-    var skewAsked  = undefined  // will carry a requested skew to be applied to the input value after div'iding and before rounding
-    var divAsked   = undefined  // a divisor to be applied to the input value before skew adding and before rounding
-    var multAsked  = undefined  // a multiplier to be applied to the input value before skew adding and before rounding
+    var offsetAsked  = undefined  // will carry a requested offset to be applied to the input value after div'iding and before rounding
+    var divAsked   = undefined  // will carry a divisor to be applied to the input value before offset adding and before rounding
+    var multAsked  = undefined  // will carry a multiplier to be applied to the input value before offset adding and before rounding
     var unitAsked  = undefined  // will carry the requested unit name
     var scaleAsked = undefined  // will carry the requested number of decimal places
     var siAsked    = true       // will carry true if units shall be transformed to SI units (default=true), e.g. °C instead of °F
+    var flickerEnabled   = false; // if default set to true here, output will always have a tiny, small random value added to distinguish it from the previous value. This helps debugging
+    var dryRunAsked  = false;   // if set to true, the script will not return the transformed value but rather the input value and log the would-be transformation result for testing purposes
 
     // Defaults:
     var scaleSeeked = undefined
@@ -165,74 +156,45 @@ function significantTransform(i, opts = {}) {
     var precisionSeeked = 2  // 2 is the default for significant figures to round to, if no or unknown unit given
     let precisionFound = 0.5 // will hold the number of significant figures found in the input value, use 0.5 in case of no meaningful figures (also for "0.0")
     let unitPrefixes = [ ]; // will hold an array of units for normalization if needed, set to undefined if normalization is to be suppressed
+    var alwaysLogFinal   = false; // if set to true, always log the final output of the transformation (set this to true for first timers!)
 
-    // function for String(str)[0]
+    // helper functions:
     const l = v => String(v)[0];  //return first character of the string passed in
     const transpose = (v, factor, newUnit) => [v * factor, newUnit];
     const fmt = (v, u) => String(v) + (u ? " " + u : "");
+    const parseAndTrace = (raw, parser, label, rawLabel, valueFormatter = v => v) => {
+        if (raw == null) return undefined;
+        const parsed = parser(raw, label);
+        const tracedValue = valueFormatter(parsed);
+        strVerb += rawLabel ? ` ${rawLabel}=${raw} ${label.toUpperCase()}=${tracedValue}` : ` ${label.toUpperCase()}=${tracedValue}`;
+        return parsed;
+    };
+    const FIVEPERCENT = 1.5; // 1.5 significant digits for a precision of 5% (e.g. for speed, power, pressure, etc.)
+    const ONEPERCENT  = 2; // 2 significant digits for a precision of 1% 
+    const HALFPERCENT = ONEPERCENT + 0.5; // 2.5 significant digits for a precision of 0.5% 
+    const ONEPROMILLE = ONEPERCENT + 1  ; // 3 significant digits for a precision of 0.1%
 
     // debugit(`input=${input}`);
 
     // Now parse all invocation parameters from the script call:
-    if (opts.verbose != null) {
-        verboseAsked = !!setDefault(opts.verbose,  isTrue)
-        // add t or f to strVerb depending on verboseAsked
-        strVerb += ` VERB=${l(verboseAsked)}`;
-        // debugEnabled = verboseAsked; // only used TEMPORARELY for testing purposes
-    }
-    if (opts.testing != null) {
-        testingAsked = !!setDefault(opts.testing,  isTrue)
-        // if (testingAsked) { verboseAsked = true ; }// if testing is asked, then also enable verbose logging
-        strVerb += ` TEST=${l(testingAsked)}`;
-    }
-    if (opts.dryRun != null) {
-        dryRunAsked = !!setDefault(opts.dryRun,  isTrue)
-        // strVerb += ` DRYRUN=${l(dryRunAsked)}`;
-    }
-    if (opts.si != null) {
-        siAsked = !!setDefault(opts.si, isTrue)
-        strVerb += ` SI=${l(siAsked)}`
-    }
-    if (opts.precision != null) { // alias prec to precision for backward compatibility
-        precisionAsked = numOrUndef(opts.precision)
-        strVerb += ` PREC=${precisionAsked}`;
-        if (precisionAsked === 0.7) {
-            // debugEnabled = true; // only for testing purposes
-        }
-    }
-    if (opts.scale != null) {
-        scaleAsked = numOrUndef(opts.scale)
-        strVerb += ` SCALE=${scaleAsked}`;
-    }
-    if (opts.skew != null) {
-        skewAsked  = numOrUndef(opts.skew)
-        strVerb += ` SKEW=${skewAsked}`;
-    }
-    if (opts.div != null) {
-        unitAsked = "" // eliminate unit when div is used, since div implies a unit change
+    // ident          = opts.ident ?? ""; // an optional ident string to better identify the invocation in the log messages
+    const parseBool = v => !!setDefault(v, isTrue);
+    ident = parseAndTrace(opts.id, v => v, "ident")
+    verboseAsked   = parseAndTrace(opts.verbose, parseBool, "verb",   undefined, l) ?? verboseAsked;
+    testingAsked   = parseAndTrace(opts.testing, parseBool, "test",   undefined, l) ?? testingAsked;
+    dryRunAsked    = parseAndTrace(opts.dryRun,  parseBool, "dryrun", undefined, l) ?? dryRunAsked;
+    siAsked        = parseAndTrace(opts.si,      parseBool, "si",     undefined, l) ?? siAsked;
+    flickerEnabled = parseAndTrace(opts.flicker, parseBool, "flick",  undefined, l) ?? flickerEnabled;
 
-        divAsked = parseScaledNumber(opts.div, "div");
-        strVerb += ` div=${opts.div} DIV=${divAsked}`;
-    }
-    if (opts.mult != null) {
-        multAsked = parseScaledNumber(opts.mult, "mult");
-        strVerb += ` MULT=${multAsked}`
-    }
-    if (opts.unit != null) {
-        // debugit(` UNIT=${opts.unit}`);
-        unitAsked = opts.unit
-        strVerb += ` UNIT=${unitAsked}`
-    }
-    if (opts.flicker != null) {
-        // debugit(` FLICKER=${opts.flicker}`);
-        flickerEnabled=!!setDefault(opts.flicker, isTrue)
-        strVerb += ` FLICK=${l(flickerEnabled)}`;
-    }
+    precisionAsked = parseAndTrace(opts.precision, numOrUndef, "prec")  ?? precisionAsked; // alias prec to precision for backward compatibility
+    scaleAsked  = parseAndTrace(opts.scale,     numOrUndef, "scale") ?? scaleAsked;
+    offsetAsked = parseAndTrace(opts.offset ?? opts.skew, numOrUndef, "offset"); // backward compatibility: skew renamed to offset, but still supported
+    divAsked    = parseAndTrace(opts.div,  parseScaledNumber, "div", "div");
+    multAsked   = parseAndTrace(opts.mult, parseScaledNumber, "mult");
+    unitAsked   = parseAndTrace(opts.unit, v => v, "unit"); // if a unit is explicitly given, then force it, even if div or mult are present
 
-    // input = "0.0123400" ; // preserve some strange corner cases for debugging purposes
-    // input = "04.0"
-    // input = ".09870"
-    // input = "-0.19870"
+    // if (ident != null) logit(`ident=:${ident}:${opts.ident}:${strVerb}:`); // log the parsed parameters with the ident for better traceability
+    // if (testingAsked) { verboseAsked = true ; }// if testing is asked, then also enable verbose logging
 
     // Special case: If the input matches a DATE-TIME string: scale the time part to a number of *significant time parts *
     // (days, hours, minutes, seconds, ...), e.g. "2025-09-27T14:16:00.000+0200" or "2025-09-27T14:16:12.20+0200"
@@ -261,11 +223,12 @@ function significantTransform(i, opts = {}) {
         const roundedTime = round(timeMs / (step * roundingUnitMs)) * (step * roundingUnitMs)
         const output = new Date(roundedTime).toISOString().replace("Z", tzoffset)
      
-        if (input !== output || alwaysLogFinal || verboseAsked) {
-            // log only differences between input and output date-time strings and differing string suffixes of input and output
-            logit(`FINAL: ${input} > ${output}, diff=${suffixDiff(input, output).aSuffix}  ${strVerb}`);
+        var logMsg = `${input} > ${output}  stringdiff=${suffixDiff(input, output).aSuffix}  ${strVerb}`;
+        if ( !logit(`FINAL: ${logMsg}`) && alwaysLogFinal) {
+            consolelog(`SIGNF: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
         }
-        return output // early return with the transformed date-time string
+
+        return dryRunAsked ? input : output // early return for a (transformed) date-time string
     }
     debugit(`input=${input}, match date regex: ${(matches ? "YES" : "NO")}`);
     
@@ -279,7 +242,7 @@ function significantTransform(i, opts = {}) {
         // treat special input cases "0-1", "1-2", "2-3" as midpoints, e.g. as from https://www.openhab.org/addons/bindings/dwdpollenflug
         matches = input.match(/(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)/)
         if (!matches) { // special case for ranges like "0-1", "1-2", "2-3"
-            logit(`FINAL: "${input}" is NaN.`)
+            warnit(`FINAL: "${input}" is NaN.`)
             return input // take an early exit for NaN non-numeric values, and return the whole input as is.
         }
         value = (parseFloat(matches[1]) + parseFloat(matches[2])) / 2  // ... and no unit allowed in this case
@@ -294,7 +257,7 @@ function significantTransform(i, opts = {}) {
         origValue = value // preserve original value for later logging and comparison, FIXME: should be saved before parseFloat
 
         // if (value>777 && value<778 && value===6.777) { // trigger debugging
-        if (isWithin(value, [6.776, 6.777], [328000, 4000])) {
+        if (isWithin(value, [6.776, 6.777], [328000, 0])) {
             debugEnabled = true; // only for testing purposes
             verboseAsked = true;
             verboseIncreased = true;
@@ -331,18 +294,19 @@ function significantTransform(i, opts = {}) {
     switch (unit_i) {
     case "°F": // Temperature
         if (!siAsked) {
-            precisionSeeked = (abs(value)<3) ? 1.3 : isWithin(value, [190, 215]) ? 3 : 2.5
+            precisionSeeked = (abs(value)<3) ? 1.3 : isWithin(value, [190, 215]) ? ONEPROMILLE : HALFPERCENT
             break
         }
         [value, unit_i] = transpose(value-32, 5/9, "°C") ; // convert and fallthrough to °C ...
     case "°C":
-        precisionSeeked = (abs(value) < 1) ? 0.7 : (abs(value) < 10) ? 1.5 : isWithin(value, [100, 120], [36, 42]) ? 3 : 2.5
+        // precisionSeeked = (abs(value) < 1) ? 0.3 : (abs(value) < 10) ? 1.5 : isWithin(value, [100, 120], [36, 42]) ? 3 : HALFPERCENT
+        precisionSeeked = isWithin(value, [100, 120], [36, 42]) ? ONEPROMILLE : (abs(value) < 10) ? max(magniTude(value), 1.5) : HALFPERCENT
         scaleSeeked = (abs(value) < 0.1) ? 2 : (abs(value) < 2) ? 1 : 0
         break;
     case "K":
         precisionSeeked  = max(-1, magniTude(value)) // more significant figures for higher temperatures
         precisionSeeked  = clamp(precisionSeeked, [1, 3]) // clamp it to 1..3
-        precisionSeeked += isWithin(value, [0, 10], [273, 2], [273+98, 3]) ? 0.7 : 0 // increase prec for special cases around water freezing and boiling point
+        precisionSeeked += isWithin(value, [0, 10], [273, 2], [273+98, 3], 0.7)  // increase prec for special cases around water freezing and boiling point
         logit(`Kelvin hit: value=${value} ${unit_i} precSeeked=${precisionSeeked} ${strVerb}`);
         break;
 
@@ -350,7 +314,8 @@ function significantTransform(i, opts = {}) {
     case "kn":
         [ value, unit_i ] = transpose(value, 1.15078, "mph"); // convert kn to mph
     case "mph":
-        precisionSeeked = (abs(value) < 10) ? 1.5 : (abs(value) < 30) ? 1.3 : 1.5
+        // precisionSeeked = (abs(value) < 10) ? 1.5 : (abs(value) < 30) ? 1.3 : 1.5
+        precisionSeeked = 1.5 + isWithin(value, [10, 30], 0.2) 
         scaleSeeked = 0
         if (siAsked) {
             [ value, unit_i ] = transpose(value, 1.609344, "km/h") ; // convert mph to km/h (prefer km/h over m/s for typical weather station wind speed)
@@ -359,7 +324,7 @@ function significantTransform(i, opts = {}) {
     case "m/s":
         [ value, unit_i ] = transpose(value, 3.6, "km/h") ; // fallthrough to km/h ...
     case "km/h":
-        precisionSeeked = (abs(value) < 5) ? 1 : (abs(value) < 20) ? 1.5 : 2
+        precisionSeeked = (abs(value) < 5) ? 1 : (abs(value) < 20) ? FIVEPERCENT : ONEPERCENT
         break;
     case "in/h":
         if (siAsked) {
@@ -374,37 +339,37 @@ function significantTransform(i, opts = {}) {
         [ value, unit_i ] = transpose(value, 12, "in") ; // fallthrough to in ...
     case "in":
         if (! siAsked) {
-            precisionSeeked = 2
+            precisionSeeked = ONEPERCENT
             break
         }
         [ value, unit_i ] = transpose(value, 2.54, "cm") ; // fallthrough to cm ...
     case "cm": // typical for precipitation
         [ value, unit_i ] = transpose(value, 10, "mm") ; // fallthrough to mm ...
     case "mm": // typical for precipitation
-        precisionSeeked = isWithin(value, [0, 100]) ? 1.7 : 2 // decrease precision for less than 80mm, probably precipitation
-        // logit(`mm hit: value=${value} ${unit_i} (ORIG: ${origValue} ${origUnit})  ${strVerb}`);
+        precisionSeeked = ONEPERCENT - isWithin(value, [0, 80], 0.2); // a little less precision when <80mm, probably precipitation
         break;
     case "m": // typical for total precipitation
-        precisionSeeked = isWithin(value, [0, 0.1]) ? 1.5 : 3 // decrease precision for less than 0.08m, probably precipitation
+        precisionSeeked = isWithin(value, [0, 0.08]) ? FIVEPERCENT : HALFPERCENT// decrease precision for less than 0.08m, probably precipitation
         unitPrefixes = [ "µ", "m", "", "k" ]; // limit the normalization vector for m to µ, m, k (no need for larger units for length in home automation)
         logit(`${unit_i} hit: value=${value} ${unit_i} (ORIG: ${origValue} ${origUnit})  ${strVerb}`);
         break;
 
     // Durations:
+    case "d":
     case "h":
         precisionSeeked = 99
         break
     case "min": // Time
-        precisionSeeked = magniTude(value) + 1 // precision starts 1 for 1-digit values, 2 for 2-digit values, etc.
-        precisionSeeked -= abs(value) > 12*60 ? 1 : 0 // reduce precision by 1 for values > 12 hours
+        precisionSeeked  = magniTude(value, +1)  // precision starts 1 for 1-digit values, 2 for 2-digit values, etc.
+        precisionSeeked -= (abs(value) > 12*60) ? 1 : 0 // reduce precision by 1 for values > 12 hours
         break
     case "s":
         // if (verboseAsked) { debugEnabled = true; } // enable only for testing purposes
         unitPrefixes = [ "n", "µ", "m", "" ]; // limit the normalization vector for s to µ, m, (no need for larger units for time in home automation)
         if (isWithin(value, [1, 1000])) {
-            precisionSeeked = 1.5 // typical for song lengths running on Amazon Echo
+            precisionSeeked = FIVEPERCENT // typical for song lengths running on Amazon Echo
         } else {
-            precisionSeeked = min( 2, magniTude(value))// precision starts at 2 for <1 and 3 for >1000
+            precisionSeeked = min( ONEPERCENT, magniTude(value))// precision starts at 2 for <1 and 3 for >1000
         }
         break
 
@@ -412,18 +377,18 @@ function significantTransform(i, opts = {}) {
     case "lb":
     case "lbs": // support both "lb" and "lbs" for pounds, since both might be used
         if (! siAsked) {
-            precisionSeeked = (abs(value) < 10) ? 1.8 : (abs(value) < 100) ? 2.8 : (abs(value) < 400) ? 3.8 : 3
+            precisionSeeked = (abs(value) < 400) ? magniTude(value, +1.8) : ONEPROMILLE  // more significant figures for higher weights, but reduce precision for very high weights 
             break
         }
         [ value, unit_i ] = transpose(value, 0.4536, "kg") ; // convert lbs to kg and fallthrough to kg ...
     case "kg":
         // special consideartion for body weights
-        precisionSeeked = (abs(value)<10) ? 1.8 : (abs(value)<100) ? 2.8 : (abs(value)<200) ? 3.8 : 3
+        precisionSeeked = (abs(value) < 200) ? magniTude(value, +1.8) : ONEPROMILLE  // more significant figures for higher weights, but reduce precision for very high weights
         scaleSeeked = 1
         break
     case "g":
         unitPrefixes = genericUnitPrefixes
-        precisionSeeked = (abs(value) < 100) ? 1.8 : (abs(value) < 1000) ? 2.8 : 3
+        precisionSeeked = (abs(value) < 1000) ? magniTude(value, -0.2) : ONEPROMILLE  // more significant figures for higher weights, but reduce precision for very high weights
         break
 
     // Pressures: Pa, hPa, mmHg, mbar, psi, inHg, bar,
@@ -431,18 +396,16 @@ function significantTransform(i, opts = {}) {
     case "inHg":
     case "mmHg":
         if (! siAsked) {
+            precisionSeeked = ONEPROMILLE
             switch (unit_i) {
             case "psi":
-                precisionSeeked = isWithin(value, [14.7, 0.7]) ? 3.5 : 3 // special case for typical atmospheric pressure around 14.7 psi
+                precisionSeeked += isWithin(value, [14.7, 0.7], 0.5)  // more precision around typical atmospheric pressure at sea level (14.7 psi) for weather station pressure readings in imperial units, but not for higher pressures such as car tire pressure at around 30-35 psi
                 break
             case "inHg":
-                precisionSeeked = isWithin(value, [30,  1.5]) ? 3.5 : 3 // special case for typical pressure around 30 inHg
+                precisionSeeked += isWithin(value, [30,  1.5], 0.5)  // more precision for athmospheric pressure
                 break
             case "mmHg":
-                precisionSeeked = isWithin(value, [750, 770]) ? 3.5 : 3 // special case for typical pressure around 760 mmHg
-                break
-            default:
-                precisionSeeked = 3
+                precisionSeeked += isWithin(value, [760, 10], 0.5) // more precision for typical atmospheric pressure around 760 mmHg
                 break
             }
             break
@@ -461,13 +424,13 @@ function significantTransform(i, opts = {}) {
             [ value, unit_i ] = transpose(value, 1.33322,  "hPa") ; // exact factor: 1 mmHg = 1.3332236842105263 hPa
             break
         }
-        precisionSeeked = isWithin(value, [800, 1000])     ? 3.5 : isWithin(value, [1000, 1050]) ? 4.5 : 3 // special case for typical pressure around 1000 hPa
+        precisionSeeked = isWithin(value, [800, 1050]) ? magniTude(value, +1.5) : ONEPROMILLE // special case for typical pressure around 1000 hPa, but reduce precision for higher pressures such as car tire pressure at around 200-300 kPa (2000-3000 hPa)
         break
     case "Pa": // Pressure
-        precisionSeeked = isWithin(value, [80000, 100000]) ? 3.5 : isWithin(value, [100000, 105000]) ? 4.5 : 3 // special case for typical pressure around 100000 Pa
+        precisionSeeked = isWithin(value, [80000, 105000]) ? magniTude(value, -0.5) : ONEPROMILLE // special case for typical pressure around 100000 Pa, but reduce precision for higher pressures such as car tire pressure at around 200-300 kPa (200000-300000 Pa)
         break
     case "bar":
-        precisionSeeked = isWithin(value, [0.8, 1])        ? 3.5 : isWithin(value, [1, 1.05]) ? 4.5 : 3 // special case for typical pressure around 1 bar
+        precisionSeeked = isWithin(value, [0.8, 1.05]) ? magniTude(value, +3.5) : ONEPROMILLE // special case for typical pressure around 1 bar, but reduce precision for higher pressures such as car tire pressure at around 2-3 bar
         break
 
     // Power, Energy: Ws, Wh, VAh
@@ -478,9 +441,9 @@ function significantTransform(i, opts = {}) {
         // examples from AVM DECT energy meter: 821312 Wh
         // fallthrough to kWh to reduce precision for Wh
     case "kWh":
-        precisionSeeked = magniTude(value) + 1.5; // precision is 1 for 1-digit values, 2 for 2-digit values, etc.
+        precisionSeeked = magniTude(value, +1.3); // default precision is 1.3 for 1-digit values, 2.3 for 2-digit values, etc.
         if (unit_i === "Wh") precisionSeeked -= 2; // reduce precision by 2 for Wh
-        precisionSeeked = max(1.5, precisionSeeked) // .. but at least 1.5
+        precisionSeeked = max(FIVEPERCENT, precisionSeeked) // .. but at least 5%
         scaleSeeked = 1
         break
 
@@ -495,7 +458,7 @@ function significantTransform(i, opts = {}) {
         break
     case "Hz": // Frequency/Rotation
         unitPrefixes = genericUnitPrefixes;
-        precisionSeeked = isWithin(value, [50, 0.3], [60, 0.2], [400, 10]) ? 2.8 : 2 // higher precision for power line frequency
+        precisionSeeked = ONEPERCENT + isWithin(value, [50, 0.3], [60, 0.2], [400, 10], 0.8) // higher precision for power line frequency
         break;
 
     // Electric: V, A, mA, F, C, Ah, S, S/m, H, Ω
@@ -514,9 +477,14 @@ function significantTransform(i, opts = {}) {
     case "S": // Conductance
     case "S/m": // Conductance density
     case "C": // Electric charge
+    case "F": // Capacitance
+    case "H": // Inductance
+    case "Wb": // Magnetic flux
     case "kΩ":
     case "MΩ":
-        precisionSeeked = 2
+    case "Gy":
+    case "Sv":
+        precisionSeeked = ONEPERCENT
         break
 
     case "W": // Power
@@ -524,18 +492,19 @@ function significantTransform(i, opts = {}) {
     case "kW":
     case "MW":
     case "dBm":
-        precisionSeeked = (abs(value) < 100) ? 1.5 : 2
+        precisionSeeked = (abs(value) < 100) ? FIVEPERCENT : ONEPERCENT
         break
 
     case "W/m²": // Irradiance/Intensity
         unitPrefixes = genericUnitPrefixes;
     case "µW/cm²":
-        precisionSeeked = (abs(value) < 10) ? 1.5 : 1.8
+        precisionSeeked = FIVEPERCENT + isWithin(value, [0, 10], +0.3) // higher precision for typical irradiance values around 10 µW/cm² (e.g. for solar radiation on a cloudy day) and around 100 µW/cm² (e.g. for solar radiation on a sunny day)
         break
 
     case "V": // Voltage
         unitPrefixes = genericUnitPrefixes;
-        precisionSeeked = isWithin(value, [110, 5], [230, 20], [400, 40]) ? 2.8 : 2.7
+        precisionSeeked = 2.7 + isWithin(value, [110, 5], [230, 20], [400, 40], +0.1)
+        // consolelog(`Voltage hit: value=${value} ${unit_i} isWithin=${isWithin(value, [110, 5], [230, 20], [400, 40], +0.1)} ${roundTo(2.7+0.1, 5)}`);
         break;
 
     // Volume: l, m³, gal (US)
@@ -554,7 +523,7 @@ function significantTransform(i, opts = {}) {
     case "m³/min":
     case "m³/h":
     case "m³/d":
-        precisionSeeked = (unit_i==="l" && isWithin(value, [8, 500])) ? 3 : 2.8 // special case for typical volume around 8..300 liters (e.g. fuel tank)
+        precisionSeeked = (unit_i==="l" && isWithin(value, [8, 500])) ? ONEPROMILLE : 2.8 // special case for typical volume around 8..300 liters (e.g. fuel tank)
         break
 
     case "mi": // Long distances
@@ -563,18 +532,18 @@ function significantTransform(i, opts = {}) {
         }
         // fallthrough to kilometers and use same default precision ...
     case "km":
-        precisionSeeked = 2.5 // use same default for mi and km
+        precisionSeeked = HALFPERCENT // use same default for mi and km
         break;
 
     case "mg/m³": // Typical for air quality
     case "µg/m³":
-        precisionSeeked = 2.5
+        precisionSeeked = HALFPERCENT
         break;
 
     case "Mbit/s": // Data rates
     case "kbit/s":
     case "bit/s":
-        precisionSeeked = 2
+        precisionSeeked = ONEPERCENT
         unitPrefixes = undefined; // don't normalize data rates
         break;
     case "Mbit": // Memory sizes
@@ -586,7 +555,7 @@ function significantTransform(i, opts = {}) {
     case "KiB":
     case "B":
         alwaysLogFinal = false; // FIXME: do not always log final (unless verboseAsked) if div with SCALING is used, to avoid log flooding with swap size logging
-        precisionSeeked = 2
+        precisionSeeked = ONEPERCENT
         unitPrefixes = undefined; // don't normalize memory sizes
         break;
 
@@ -596,26 +565,20 @@ function significantTransform(i, opts = {}) {
     case "dB":
     case "mol":
     case "kat":
-        precisionSeeked = 2.5
+        precisionSeeked = HALFPERCENT
         break;
 
     case "percent":
         unit_i = "%"; // treat option unit "percent" as "%" too - might avoid problems with the URL encoding of "%"
     case "%": // Percent
-        precisionSeeked = isWithin(value, [0, 5], [89, 102]) ? 1.2 : 1.5 // be more precise closer to 0% or to 100%
+        precisionSeeked = FIVEPERCENT + isWithin(value, [0, 5], [89, 102], +0.3) // be more precise closer to 0% or to 100%
         unitPrefixes = undefined; // don't normalize percentages
-        // logit(`Percent hit: value=${value} ${unit_i}  ${strVerb}`);
         break;
 
     case "°": // Angle
         precisionSeeked = 2
         unitPrefixes = undefined; // don't normalize angles
-        // prec=1: between <45 and >315 degrees -> 0°, between 45 and 135 -> 90°, between 135 and 225 -> 180°, between 225 and 315 -> 270°
-        // prec=2: between 337.5 and 22.5 degrees -> 0°, between 22.5 and 67.5 -> 45°, between 67.5 and 112.5 -> 90°, between 112.5 and 157.5 -> 135°
-        // prec=3: between 348.75 and 11.25 degrees -> 0°, between 11.25 and 33.75 -> 22.5°, between 33.75 and 56.25 -> 45°, between 56.25 and 78.75 -> 67.5°
-        // therefore: prec=1 -> 90° steps, prec=2 -> 45° steps, prec=3 -> 22.5° steps
-        // for prec==1 need to divide by 90, round, and multiply by 90, but add
-       break;
+        break;
 
     default: // Unknown unit -> use the default precision defined above
         // precisionSeeked = 2 was set above as default
@@ -627,7 +590,7 @@ function significantTransform(i, opts = {}) {
 
     if (precisionAsked != null ) {
         if (precisionAsked === 0) {
-            warnit(`precisionAsked===0, ignoring it.`);
+            warnit(`Requested precisionAsked is 0, ignoring it.`);
         } else {
             precisionSeeked = precisionAsked; // use precisionAsked instead of any unit-specific defaults
         }
@@ -636,16 +599,25 @@ function significantTransform(i, opts = {}) {
         scaleSeeked = scaleAsked;
     }
 
+    precisionSeeked = roundTo(precisionSeeked, 5) // needed to avoid 2.7 + 0.1 = 2.8000003. Rounding to 5 decimal places should prevent floating point issues.
     var targetPrecisionSeeked = precisionSeeked;
     finalUnit = unit_i
-    value += (skewAsked ?? 0)  // ... also apply any skew, if given
+    value += (offsetAsked ?? 0)  // ... also apply any offset, if given
 
-    if (unit_i === "°") {  // handle angle values differently than other units, more in terms of quadrants
-        // 0..360° only, round to 90°, 45°, 22.5° steps
-        value = ((value % 360) + 360) % 360 // normalize value into range [0..360)
-        angledivider = 90 / floor(precisionSeeked)
+    if (unit_i === "°") {  // handle angle value more in terms of quadrants, not in the sense of significant figures, since angles are often more meaningful when rounded to 90°, 45°, 22.5° steps, etc. depending on the precisionSeeked (1, 2, 3, etc.) and not in terms of significant digits.
+        value = ((value % 360) + 360) % 360 // normalize into [0,360): adding 360 handles negative angles
+        // prec=1: 90°; 315    <-> 45    --> 0°, 45 <-> 135 --> 90°, 135 <-> 225 --> 180°, 225 <-> 315 --> 270°
+        // prec=2: 45°: 337.5  <-> 22.5  --> 0°, 22.5  <-> 67.5  --> 45°,   67.5  <-> 112.5 --> 90°,  112.5 <-> 157.5 --> 135°
+        // prec=3: 30°: 345    <-> 15    --> 0°, 15    <-> 45    --> 30°,   45    <->  75   --> 45°,   75   <-> 105   --> 90°, 105   <-> 135   --> 120°, 135   <-> 165   --> 135°, 165   <-> 195   --> 180°, 195   <-> 225   --> 210°, 225   <-> 255   --> 225°, 255   <-> 285   --> 270°, 285   <-> 315   --> 300°, 315   <-> 345   --> 315°
+        // prec=4:22.5: 348.75 <-> 11.25 --> 0°, 11.25 <-> 33.75 --> 22.5°, 33.75 <-> 56.25 --> 45°, 56.25 <-> 78.75 --> 67.5°
+        // prec=5: 15°: 352.5  <-> 7.5   --> 0°, 7.5   <-> 22.5  --> 15°, 22.5  <-> 37.5  --> 30°, 37.5  <-> 52.5  --> 45°, 52.5  <-> 67.5  --> 60°, 67.5  <-> 82.5  --> 75°, 82.5  <-> 97.5 --> 90°, ... and so on, with steps of (180/prec)° and borders at (360/(2*prec))° + n*(360/prec)°
+        // prec=6:11,25°: 354.375 <-> 5.625 --> 0°, 5.625 <-> 16.875 --> 11.25°, 16.875 <-> 28.125 --> 22.5°, 28.125 <-> 39.375 --> 33.75°, ... and so on, with steps of (180/prec)° and borders at (360/(2*prec))° + n*(360/prec)°
+        // therefore: prec=1 -> 90° steps, prec=2 -> 45° steps, prec=3 -> 22.5° steps
+        // for prec==1 need to divide by 90, round, and multiply by 90, but add
+        // angledivider = 90 / floor(precisionSeeked)
+        angledivider = [ 90, 45, 30, 22.5, 15, 11.25 ][floor(precisionSeeked) - 1] ?? 45 // fallback to 22.5 steps for precisionSeeked > 5
         var v = roundTo(value / angledivider, 5) // round to 5 decimal places to avoid rounding errors
-        if (precisionSeeked === 1 || precisionSeeked === 2) { // the sectors might be chosen differently....
+        if (precisionSeeked < 5) { // wind rose/for larger sectors chosen differently....
             newValue = floor(v+0.5) * angledivider  // good for odd precisionSeeked (1=90°), more compass-like (2=45°)
         } else {
             newValue = floor(  v  ) * angledivider  +  (angledivider/2)   // good for even precisionSeeked (2=45°, 4=22.5°)
@@ -653,8 +625,8 @@ function significantTransform(i, opts = {}) {
         newValue = newValue % 360 // normalize into range [0..360)
         debugit(`Angle: v=${v}, value=${value}° (${compassAngleToDir(value,precisionSeeked)}), newValue=${newValue}° (${compassAngleToDir(newValue,precisionSeeked)}), anglediv=${angledivider} ${strVerb}`);
     } else if (value === 0) {
-        alwaysLogFinal = false; // avoid logging final zero values unless verboseAsked
-    } else {
+        alwaysLogFinal = false || verboseAsked; // avoid logging final zero values,  unless verboseAsked
+    } else { // all other units: round to significant figures with the given precisionSeeked, and apply any scaling if needed
         if (divAsked != null) {
             value /= divAsked // apply the divisor if given
             logit(`DIV: divAsked=${divAsked} for new value=${value} unit=${unit_i} ${strVerb}`);
@@ -672,7 +644,7 @@ function significantTransform(i, opts = {}) {
         // ... and do the magic for the fractional part in precisionSeeked:
         if (frac > 0 && precisionFound > precisionSeeked) {
             if (frac === 0.1) {
-                warnit(`prec is valued at ${precisionSeeked} + 0.1, same as prec=${precisionSeeked + 1}, consider using integer precisions only.`);
+                warnit(`Requested precision ${precisionSeeked} + 0.1, same as prec=${precisionSeeked + 1}, consider using integer precisions only.`);
             }            
             debugit(` == Rounding value=${value} with frac=${frac}, precisionSeeked=${precisionSeeked} ${strVerb}`);
             let mult = clamp(Math.ceil(1/frac), [2, 5]) // mult is 2 for frac=0.5, 3 for frac=0.4, 4 for frac=0.3, 5 for frac=0.2
@@ -762,7 +734,7 @@ function significantTransform(i, opts = {}) {
         consolelog(`SIGNF: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
     }
 
-    if ((testingAsked && new Date().getSeconds() % 5 === 0) || dryRunAsked) { // at every full 5 seconds, return the original value for testing purposes
+    if (dryRunAsked || (testingAsked && new Date().getSeconds() % 5 === 0)) { // at every full 5 seconds, return the original value for testing purposes
         const out = fmt(origValue, origUnit);
         logit(`RETURNing origValue: ${out}`);
         return out;
@@ -786,15 +758,23 @@ function suffixDiff(a, b) {
 }
 
 // isWithin(): check if value is within any of the given ranges - ranges can be given as [min, max) or as [center, halfwidth]
+// if last element of the parameter list is not an array, it shall be the return value for true and 0 for false.
+// A range will be interpreted as [0, range) for positive values and (range, 0] for negative values
 function isWithin(value, ...ranges) {
     if (!Number.isFinite(value)) return false;
-    return ranges.some(([a, b]) => {
-        if (a <= b) {
-            return a <= value && value < b; // range is [min, max)
+    let returnValue = null; // default return value for true if no numeric return value is given in the ranges
+
+    if (ranges.length > 0 && !Array.isArray(ranges[ranges.length - 1])) {
+        returnValue = ranges.pop(); // use last element as return value for true and 0 for false
+    }
+    const hasMatch = ranges.some(([a, b]) => {
+        if (a <= b) { // default return value is true for values in the range [min, max) and false otherwise
+            return (a <= value && value < b)
         } else {
-            return a-b <= value && value <= a+b; // range is [center - halfwidth, center + halfwidth]
+            return (a-b <= value && value <= a+b); // range is [center - halfwidth, center + halfwidth]
         }
     });
+    return returnValue === null ? hasMatch : (hasMatch ? returnValue : 0);
 }
 
 // clamp(): clamp a number x to the range [min, max]
@@ -809,9 +789,10 @@ function roundTo(x, decimals) {
 }
 
 // magniTude(): return the order magnitude of any number x (-1 for 0.1..0.9, 0 for 1..9, 1 for 10..99, 2 for 100..999, etc.)
-function magniTude(x) {
-    if (x === 0) return 0;
-    return floor(Math.log10(abs(x)));
+// second, optional parameter a to be added to result before returning
+function magniTude(x, a = 0) {
+    if (x === 0) return a;
+    return floor(Math.log10(abs(x))) + a;
 }
 
 // isTrue(): interpret a given string as boolean true/false, and return the boolean value
@@ -824,7 +805,7 @@ function isTrue(s) {
 
 // consolelog(): log to console.log if available, otherwise use JS print()
 function consolelog(s) {
-    const str = String(s ?? "").replace(/\s+/g, ' ').replace(/:/, `${id}:`); // normalize spaces and add any id to the log message
+    const str = `${ident ? ident + ": " : ""}` + String(s ?? "").replace(/\s+/g, ' '); // normalize spaces and add any id to the log message
     if (typeof console !== "undefined" && console && typeof console.log === "function") {
         console.log(str);
     } else if (typeof print === "function") {
@@ -889,7 +870,7 @@ function parseScaledNumber(raw, label) {
             parsed = undefined;
         } else {
             parsed = amount * SCALE_AMOUNT_MAP[typea];
-            logit(`Parsed ${label}: amount=${amount} typea="${typea}" => ${label}Asked=${parsed}`);
+            logit(`Parsed: ${label} amount=${amount} typea="${typea}" => ${label}Asked=${parsed}`);
         }
     } else {
         parsed = numOrUndef(raw);
@@ -961,8 +942,10 @@ function compassAngleToDir(deg, scale = 2) {
 
   // Pick up any injected globals (some transform profiles define them directly)
   var injected = {};
-  ['precision','prec','scale','unit','div','mult','skew','si','verbose', 'testing', 'flicker', 'id', 'dryRun'].forEach(k => {
+  var option_keys = ['precision', 'prec', 'scale', 'unit', 'div', 'mult', 'offset', 'skew', 'si', 'verbose', 'testing', 'flicker', 'dryRun', 'id', 'ident']
+  option_keys.forEach(k => {
     if (this[k] != null) injected[k] = this[k];
+    // if (this[k] != undefined) consolelog(`PARAM: ${k} ===> ${this[k]}`);
     this[k] = undefined; // reset the injected globals to undefined to avoid interference with next invocation
   });
 
@@ -970,7 +953,7 @@ function compassAngleToDir(deg, scale = 2) {
   var opts = Object.assign({}, optsFromQuery, injected);
 
   // consolelog(`significant.js: input=${input}, opts=${JSON.stringify(opts)}`);
-  return significantTransform(input, opts);
+  return significantTransformed(input, opts);
 })();
 
 // -----------------------------------------------------------------------------------------
@@ -978,5 +961,5 @@ function compassAngleToDir(deg, scale = 2) {
 // -----------------------------------------------------------------------------------------
 // should be commented out during openHAB use (transformation script might return an object otherwise)
 /// if (typeof module !== "undefined" && module && typeof module.exports !== "undefined") {
-///  module.exports = { significantTransform };
+///  module.exports = { significantTransformed };
 /// }
