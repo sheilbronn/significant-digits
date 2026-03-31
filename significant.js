@@ -156,7 +156,7 @@ function significantTransformed(i, opts = {}) {
     var angledivider   = 1 // for rounding angles to 90°, 45°, 22.5° steps
     let precisionFound = 0.5 // will hold the number of significant figures found in the input value, use 0.5 in case of no meaningful figures (also for "0.0")
     let unitPrefixes   = [ ]; // will hold an array of units for normalization if needed, set to undefined if normalization is to be suppressed
-    var alwaysLogFinal = false; // if set to true, always log the final output of the transformation (set this to true for first timers!)
+    var alwaysLogFinal = true; // if set to true, always log the final output of the transformation (set this to true for first timers!)
 
     // helper functions:
     const l = v => String(v)[0];  //return first character of the string passed in
@@ -733,8 +733,8 @@ function significantTransformed(i, opts = {}) {
     }
 
     var logMsg = `${input} (${precisionFound}) > ${parseFloat(value.toPrecision(8))} ${unit_i} > ${fmt(newValue, finalUnit)} (${targetPrecisionSeeked}${scaleSeeked===undefined ? "" : " sc=" + scaleSeeked})  ${strVerb}`;
-    if ( !logit(`${ident ?? "FINALz"}:: ${logMsg}`) && alwaysLogFinal) {
-        consolelog(`${ident ?? "SIGNFy"}: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
+    if ( !logit(`${ident ?? "FINAL"}: ${logMsg}`) && alwaysLogFinal) {
+        consolelog(`${ident ?? "SIGNF"}: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
     }
 
     if (dryRunAsked || (testingAsked && new Date().getSeconds() % 5 === 0)) { // at every full 5 seconds, return the original value for testing purposes
