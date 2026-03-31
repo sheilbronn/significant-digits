@@ -23,7 +23,7 @@
 // "unit"      : a unit to force the output to: ...?unit=°C (unit=. will remove any unit passed in the input)
 // "verbose"   : one of {t|true|1|yes|y||false|no} to enable or disable logging: ...?verbose=true
 // "testing"   : {t|true|1|yes|y||false|no} to enable or disable testing of new features: ...?testing=y
-// "offset"    : a number to add to the input value before rounding,: ...?offset=0.5
+// "offset"    : a number to add to the input value before rounding,: ...?offset=0.5 (formerly: skew)
 
 // Not implemented (yet):
 // "mode"    : specify the rounding mode (e.g. "up", "down", "half-up", "half-down", "half-even", etc.) for the significant figure rounding, half-up is the default for now
@@ -142,21 +142,21 @@ function significantTransformed(i, opts = {}) {
     // more vars to carry values of the injected parameters:
     var precisionAsked  = undefined // will carry the requested number of significant figures
     var offsetAsked  = undefined  // will carry a requested offset to be applied to the input value after div'iding and before rounding
-    var divAsked   = undefined  // will carry a divisor to be applied to the input value before offset adding and before rounding
-    var multAsked  = undefined  // will carry a multiplier to be applied to the input value before offset adding and before rounding
-    var unitAsked  = undefined  // will carry the requested unit name
-    var scaleAsked = undefined  // will carry the requested number of decimal places
-    var siAsked    = true       // will carry true if units shall be transformed to SI units (default=true), e.g. °C instead of °F
-    var flickerEnabled   = false; // if default set to true here, output will always have a tiny, small random value added to distinguish it from the previous value. This helps debugging
+    var divAsked     = undefined  // will carry a divisor to be applied to the input value before offset adding and before rounding
+    var multAsked    = undefined  // will carry a multiplier to be applied to the input value before offset adding and before rounding
+    var unitAsked    = undefined  // will carry the requested unit name
+    var scaleAsked   = undefined  // will carry the requested number of decimal places
+    var siAsked      = true       // will carry true if units shall be transformed to SI units (default=true), e.g. °C instead of °F
+    var flickerEnabled = false; // if default set to true here, output will always have a tiny, small random value added to distinguish it from the previous value. This helps debugging
     var dryRunAsked  = false;   // if set to true, the script will not return the transformed value but rather the input value and log the would-be transformation result for testing purposes
 
     // Defaults:
-    var scaleSeeked = undefined
-    var angledivider = 1 // for rounding angles to 90°, 45°, 22.5° steps
     var precisionSeeked = 2  // 2 is the default for significant figures to round to, if no or unknown unit given
+    var scaleSeeked    = undefined
+    var angledivider   = 1 // for rounding angles to 90°, 45°, 22.5° steps
     let precisionFound = 0.5 // will hold the number of significant figures found in the input value, use 0.5 in case of no meaningful figures (also for "0.0")
-    let unitPrefixes = [ ]; // will hold an array of units for normalization if needed, set to undefined if normalization is to be suppressed
-    var alwaysLogFinal   = false; // if set to true, always log the final output of the transformation (set this to true for first timers!)
+    let unitPrefixes   = [ ]; // will hold an array of units for normalization if needed, set to undefined if normalization is to be suppressed
+    var alwaysLogFinal = false; // if set to true, always log the final output of the transformation (set this to true for first timers!)
 
     // helper functions:
     const l = v => String(v)[0];  //return first character of the string passed in
@@ -169,6 +169,7 @@ function significantTransformed(i, opts = {}) {
         strVerb += rawLabel ? ` ${rawLabel}=${raw} ${label.toUpperCase()}=${tracedValue}` : ` ${label.toUpperCase()}=${tracedValue}`;
         return parsed;
     };
+    const parseBool = v => !!setDefault(v, isTrue);
     const FIVEPERCENT = 1.5; // 1.5 significant digits for a precision of 5% (e.g. for speed, power, pressure, etc.)
     const ONEPERCENT  = 2; // 2 significant digits for a precision of 1% 
     const HALFPERCENT = ONEPERCENT + 0.5; // 2.5 significant digits for a precision of 0.5% 
@@ -177,9 +178,8 @@ function significantTransformed(i, opts = {}) {
     // debugit(`input=${input}`);
 
     // Now parse all invocation parameters from the script call:
-    // ident          = opts.ident ?? ""; // an optional ident string to better identify the invocation in the log messages
-    const parseBool = v => !!setDefault(v, isTrue);
-    ident = parseAndTrace(opts.id, v => v, "ident")
+    ident          = opts.id ?? ""
+    // parseAndTrace(opts.id, v => v, "ident")
     verboseAsked   = parseAndTrace(opts.verbose, parseBool, "verb",   undefined, l) ?? verboseAsked;
     testingAsked   = parseAndTrace(opts.testing, parseBool, "test",   undefined, l) ?? testingAsked;
     dryRunAsked    = parseAndTrace(opts.dryRun,  parseBool, "dryrun", undefined, l) ?? dryRunAsked;
@@ -193,8 +193,9 @@ function significantTransformed(i, opts = {}) {
     multAsked   = parseAndTrace(opts.mult, parseScaledNumber, "mult");
     unitAsked   = parseAndTrace(opts.unit, v => v, "unit"); // if a unit is explicitly given, then force it, even if div or mult are present
 
-    // if (ident != null) logit(`ident=:${ident}:${opts.ident}:${strVerb}:`); // log the parsed parameters with the ident for better traceability
     // if (testingAsked) { verboseAsked = true ; }// if testing is asked, then also enable verbose logging
+    
+    // consolelog(`PARAMS: ${strVerb}  ${verboseAsked ? "(VERBOSE)" : ""} ${dryRunAsked ? "(DRYRUN)" : ""}`);
 
     // Special case: If the input matches a DATE-TIME string: scale the time part to a number of *significant time parts *
     // (days, hours, minutes, seconds, ...), e.g. "2025-09-27T14:16:00.000+0200" or "2025-09-27T14:16:12.20+0200"
@@ -224,8 +225,8 @@ function significantTransformed(i, opts = {}) {
         const output = new Date(roundedTime).toISOString().replace("Z", tzoffset)
      
         var logMsg = `${input} > ${output}  stringdiff=${suffixDiff(input, output).aSuffix}  ${strVerb}`;
-        if ( !logit(`FINAL: ${logMsg}`) && alwaysLogFinal) {
-            consolelog(`SIGNF: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
+        if ( !logit(`${ident ?? "FINAL"}: ${logMsg}`) && alwaysLogFinal) {
+            consolelog(`${ident ?? "SIGNF"}: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
         }
 
         return dryRunAsked ? input : output // early return for a (transformed) date-time string
@@ -267,13 +268,13 @@ function significantTransformed(i, opts = {}) {
 
     // Now determine the number of significant figures of the original INPUT value (i.e. those figures before AND after the decimal point):
 
-    // extract to m the first numeric token: supports "12.3 °C", "-.0450", "1.20e3", etc.
-    const m = input.trim().match(/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/)
-    if (!m) {
-        return input;  // this should not happen, since we parsed a float before
+    // extract to matches the first numeric token: supports "12.3 °C", "-.0450", "1.20e3", etc.
+    matches = input.trim().match(/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/)
+    if (!matches) {
+        return input;  // should not happen, since we successfule parsed a float before
     }
 
-    const mant = m[0].split(/[eE]/)[0].replace(/^[+-]/, ""); // mantissa, no sign
+    const mant = matches[0].split(/[eE]/)[0].replace(/^[+-]/, ""); // only the mantissa, no sign
     let digits = mant.replace(".", ""); // for counting digits
 
     if (/[1-9]/.test(digits)) {  // this should be the normal case:
@@ -554,7 +555,8 @@ function significantTransformed(i, opts = {}) {
     case "MiB":
     case "KiB":
     case "B":
-        alwaysLogFinal = false; // FIXME: do not always log final (unless verboseAsked) if div with SCALING is used, to avoid log flooding with swap size logging
+        debugEnabled = true; // FIXME
+        alwaysLogFinal = true; // FIXME: do not always log final (unless verboseAsked) if div with SCALING is used, to avoid log flooding with swap size logging
         precisionSeeked = ONEPERCENT
         unitPrefixes = undefined; // don't normalize memory sizes
         break;
@@ -680,13 +682,13 @@ function significantTransformed(i, opts = {}) {
         // might scale the unit by changing the dimension...
         // FIXME: really scale 1276540 Wh to 1.2765 MWh?  Wouldn't 1276.5 kWh be nicer for readability?
         let scale3 = Math.trunc(magniTude(newValue)/3)
-        if (scale3 !== 0 && unitPrefixes != null) { // magnitude could even be 1 larger...
+        if (scale3 !== 0 && unitPrefixes != null && true) { // magnitude could even be 1 larger...  // FIXME
             // convert number to scientific notation and back to avoid signalling unneeded significant figures
             // only normalize with multiples of 3 and use the normalizeVector if given:
             // debugEnabled = true; // FIXME: enable only for testing purposes
 
             let magnit = magniTude(newValue)
-            let baseUnitIndex = unitPrefixes.indexOf("") // find the index of the (empty) base unit in the normalizeVector
+            const baseUnitIndex = unitPrefixes.indexOf("") // find the index of the (empty) base unit in the normalizeVector
             if (unitPrefixes[baseUnitIndex + scale3]) {
                 // adapt value and unit dimension according to the amount of scale3
                 newValue = newValue / Math.pow(10, 3*scale3)
@@ -697,16 +699,17 @@ function significantTransformed(i, opts = {}) {
                 debugit(` NORMALIZE: scale3=${scale3} * 3 applied to magnit=${magnit}: newValue=${newValue} finalUnit=${finalUnit}`);
                 scale3=0 // since we chose the fitting unit
             } else {
+		// debugEnabled=true;
                 debugit(` NORMALIZE SKIPPED: scale3=${scale3}*3 NOT applied to magnit=${magnit}: no entry in normalizeVector=${unitPrefixes}`);
-
                 let movedecimals = min( precisionFound, Math.ceil(precisionSeeked+frac)) - 0
                 newValue = newValue.toExponential( movedecimals )  // newValue as string in scientific notation with precisionFound significant figures
                 
                 // NO MORE calculations possible here >> BE CAREFUL, since newValue now becomes a STRING!
                 // remove unnecessary stuff in the fractional part:
-                newValue = newValue.replace(/\.0+e/, "e") // trailing .0+ before the 'e'
-                newValue = newValue.replace(/(\.\d*?[1-9])0+e/, "$1e") // trailing zeros before the 'e'
-                newValue = newValue.replace(/[eE]\+0$/, "") // any e+0 at the end
+                newValue = newValue.replace(/\.0+([eE])/, "$1")              // any trailing .0+ before the 'e'
+                newValue = newValue.replace(/(\.\d*?[1-9])0+([eE])/, "$1$2") // any trailing 0's before the 'e'
+                newValue = newValue.replace(/[eE]\+0$/, "")                  // remove an "e+0" at the end
+                newValue = newValue.replace(/([eE])\+/, "$1") // FIXME: remove "+" from exponent, WORKAROUND for a bug in openHAB (#20477)
                 debugit(` CUT figures: magnitude=${magnit}, precisionSeeked=${precisionSeeked} > newValue=${newValue} finalUnit=${finalUnit}`);
                 scaleSeeked = null;  // Ignore any scaleSeeked, since we already cut the number to the right amount of significant figures
                 // do not apply any more scaling, since newValue is now a string with the right number of significant figures, and scaling would add unneeded zeros again
@@ -730,8 +733,8 @@ function significantTransformed(i, opts = {}) {
     }
 
     var logMsg = `${input} (${precisionFound}) > ${parseFloat(value.toPrecision(8))} ${unit_i} > ${fmt(newValue, finalUnit)} (${targetPrecisionSeeked}${scaleSeeked===undefined ? "" : " sc=" + scaleSeeked})  ${strVerb}`;
-    if ( !logit(`FINAL: ${logMsg}`) && alwaysLogFinal) {
-        consolelog(`SIGNF: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
+    if ( !logit(`${ident ?? "FINALz"}:: ${logMsg}`) && alwaysLogFinal) {
+        consolelog(`${ident ?? "SIGNFy"}: ${logMsg} ${dryRunAsked ? "(DRYRUN)" : ""}`);
     }
 
     if (dryRunAsked || (testingAsked && new Date().getSeconds() % 5 === 0)) { // at every full 5 seconds, return the original value for testing purposes
@@ -805,7 +808,8 @@ function isTrue(s) {
 
 // consolelog(): log to console.log if available, otherwise use JS print()
 function consolelog(s) {
-    const str = `${ident ? ident + ": " : ""}` + String(s ?? "").replace(/\s+/g, ' '); // normalize spaces and add any id to the log message
+    // try to find the contents of ident in string s:
+    const str = `${ident && ! s.includes(ident) ? ident + ": " : ""}` + String(s ?? "").replace(/\s+/g, ' '); // normalize spaces and add any id to the log message
     if (typeof console !== "undefined" && console && typeof console.log === "function") {
         console.log(str);
     } else if (typeof print === "function") {
