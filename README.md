@@ -32,13 +32,13 @@ It’s built for numeric state values such as from **temperature**, **humidity**
 ## 📦 Installation (openHAB)
 
 1. First, install the [**JavaScript Scripting Addon**](https://www.openhab.org/addons/automation/jsscripting) add-on from the Addon Store in your openHAB web interface.
-2. Download `significant.js` into your transform folder - usually:
+2. Download `significant.js` into your transform folder - usually here:
 
    ```bash
    /etc/openhab/transform/significant.js
    ```
-3. There should be no need to restart openHAB.
-4. A version for the OpenHAB Add-on store has been prepared.
+   There should be no need to restart openHAB.
+4. Alternative: This script is also directly available one the OpenHAB Add-on Marketplace as [Significant Digits](https://community.openhab.org/t/significant-digits/168792). You still need to install the JavaScript Scripting Addon, however.
 
 ---
 
