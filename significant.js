@@ -555,7 +555,7 @@ function significantTransformed(i, opts = {}) {
     case "MiB":
     case "KiB":
     case "B":
-        debugEnabled = true; // FIXME
+        // debugEnabled = true; // FIXME
         alwaysLogFinal = true; // FIXME: do not always log final (unless verboseAsked) if div with SCALING is used, to avoid log flooding with swap size logging
         precisionSeeked = ONEPERCENT
         unitPrefixes = undefined; // don't normalize memory sizes
@@ -573,13 +573,13 @@ function significantTransformed(i, opts = {}) {
     case "percent":
         unit_i = "%"; // treat option unit "percent" as "%" too - might avoid problems with the URL encoding of "%"
     case "%": // Percent
-        precisionSeeked = FIVEPERCENT + isWithin(value, [0, 5], [89, 102], +0.3) // be more precise closer to 0% or to 100%
+        precisionSeeked = FIVEPERCENT + isWithin(value, [0,5], [89,102], +0.3) // be more precise closer to 0% or to 100%
         unitPrefixes = undefined; // don't normalize percentages
         break;
 
     case "°": // Angle
         precisionSeeked = 2
-        unitPrefixes = undefined; // don't normalize angles
+        unitPrefixes = undefined; // don't normalize angle values
         break;
 
     default: // Unknown unit -> use the default precision defined above
@@ -682,7 +682,7 @@ function significantTransformed(i, opts = {}) {
         // might scale the unit by changing the dimension...
         // FIXME: really scale 1276540 Wh to 1.2765 MWh?  Wouldn't 1276.5 kWh be nicer for readability?
         let scale3 = Math.trunc(magniTude(newValue)/3)
-        if (scale3 !== 0 && unitPrefixes != null && true) { // magnitude could even be 1 larger...  // FIXME
+        if (scale3 !== 0 && unitPrefixes != null) { // magnitude could even be 1 larger...  // FIXME
             // convert number to scientific notation and back to avoid signalling unneeded significant figures
             // only normalize with multiples of 3 and use the normalizeVector if given:
             // debugEnabled = true; // FIXME: enable only for testing purposes
@@ -699,7 +699,7 @@ function significantTransformed(i, opts = {}) {
                 debugit(` NORMALIZE: scale3=${scale3} * 3 applied to magnit=${magnit}: newValue=${newValue} finalUnit=${finalUnit}`);
                 scale3=0 // since we chose the fitting unit
             } else {
-		// debugEnabled=true;
+		        // debugEnabled=true;
                 debugit(` NORMALIZE SKIPPED: scale3=${scale3}*3 NOT applied to magnit=${magnit}: no entry in normalizeVector=${unitPrefixes}`);
                 let movedecimals = min( precisionFound, Math.ceil(precisionSeeked+frac)) - 0
                 newValue = newValue.toExponential( movedecimals )  // newValue as string in scientific notation with precisionFound significant figures
@@ -873,8 +873,8 @@ function parseScaledNumber(raw, label) {
             warnit(`UNKNOWN ${label} unit: "${typea}"; ignoring ${raw}.`);
             parsed = undefined;
         } else {
-            parsed = amount * SCALE_AMOUNT_MAP[typea];
-            logit(`Parsed: ${label} amount=${amount} typea="${typea}" => ${label}Asked=${parsed}`);
+            parsed = amount * SCALE_AMOUNT_MAP[typea];            
+            debugit(`Parsed: ${label} amount=${amount} typea="${typea}" => ${label}Asked=${parsed}`);
         }
     } else {
         parsed = numOrUndef(raw);
