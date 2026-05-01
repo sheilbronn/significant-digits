@@ -2,11 +2,11 @@
 
 **significant.js** is an **openHAB JavaScript Transformation** script that makes sensor data more readable by **normalizing**, **rounding**, and **converting units** into a more *real-world friendly format*.  You can see it as a filter for unnecessary precision: 6.34 °C should become a more sensible 6.5 °C, or even 6 °C, depending on your preferences and your context.
 
-It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality. But it also works for **percentages** and **date/time values**.
+It’s built for numeric state values such as from **temperature**, **humidity**, **power**, **air quality**, and other environmental sensors, smoothing out meaningless fluctuations while respecting physical reality. But it also works for **percentages**, **angles**, **data sizes** (e.g. Bytes) and **date/time values**.
 
 🧠 Smart enough to:
 
-- Handle all known openHAB units (°C, m/s, W, mph, hPa, s, … → see [list of UoM's](https://www.openhab.org/docs/concepts/units-of-measurement.html))
+- Handle all known openHAB units (°C, m/s, W, mph, hPa, s, °, … → see [list of UoM's](https://www.openhab.org/docs/concepts/units-of-measurement.html))
 - Reduce irrelevant "flicker"
 - Convert between units (e.g., °F → °C, mph → km/h, in → cm, …)
 - Higher precision defaults around some important real-world values (i.e. 1000 mbar pressures, 0° C, 50 Hz, 110 V, 220 V, ...)

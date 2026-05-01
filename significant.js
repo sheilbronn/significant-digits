@@ -42,7 +42,7 @@ var SCALE_AMOUNT_MAP = Object.freeze({
 });
 var DATE_TIME_SCALE_MAP = new Map([
     ["paddings", [4, 2, 2, 2, 2, 2, 3]],
-    ["steps", new Map([               // for fractional of ...
+    ["steps", new Map([               // determine steps for fractional parts of the scale option ...
         [-3, [1, 1,  2,  3,  4,  6]], // years, e.g. to 5y, 4y, 3y, 2y steps
         [-2, [1, 1,  5,  8, 10, 15]], // months, e.g. to 6m, 4m, 3m, 2m steps
         [-1, [1, 1,  2,  2,  3,  3]], // days, e.g. to 2d, 3d, 4d, 5d, 6d, 7d, 8d, 9d steps
@@ -212,7 +212,7 @@ function significantTransformed(i, opts = {}) {
 
         // time-date scale levels are: 0=days, 1=hours, 2=minutes, 3=seconds, 4=milliseconds
         scaleAsked = clamp(scaleAsked ?? 3, [0, 4])  // clamp scaleAsked to [0..4] with a default of 3
-        const [scaleFloor, frac] = splitScaleValue(scaleAsked)
+        const [scaleFloor, frac] = splitNumber(scaleAsked)
         debugit(`  DATE-TIME INPUT: scaleAsked=${scaleAsked} > scaleFloor=${scaleFloor}, frac=${frac}`);
         const step = DATE_TIME_SCALE_MAP.get("steps").get(scaleFloor)?.[round(frac * 10)] ?? 1
 
@@ -268,7 +268,7 @@ function significantTransformed(i, opts = {}) {
 
     // Now determine the number of significant figures of the original INPUT value (i.e. those figures before AND after the decimal point):
 
-    // extract to matches the first numeric token: supports "12.3 °C", "-.0450", "1.20e3", etc.
+    // extract into matches the first numeric token: supports "12.3 °C", "-.0450", "1.20e3", etc.
     matches = input.trim().match(/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/)
     if (!matches) {
         return input;  // should not happen, since we successfule parsed a float before
@@ -639,7 +639,7 @@ function significantTransformed(i, opts = {}) {
         }
 
         // Now take care of all the significant figure rounding...
-        var [precisionSeeked, frac] = splitScaleValue(precisionSeeked) // split any fractional part from the precisionSeeked (1 digit)
+        var [precisionSeeked, frac] = splitNumber(precisionSeeked) // split any fractional part from the precisionSeeked (1 digit)
         var magnit = magniTude(value)  // magnitude is 0 for 1-9, 1 for 10-99, 2 for 100-999 and so on....
         var power = Math.pow(10, magnit - precisionSeeked + 1) // when prec=1: power is 100 for prec=2 and value=349 (magnit=2)
         debugit(`=== value=${value} ${unit_i} Seeked=${precisionSeeked} AND Found=${precisionFound}, magnit=${magnit} power=${power} frac=${frac} ${strVerb}`);
@@ -813,7 +813,7 @@ function consolelog(s) {
     if (typeof console !== "undefined" && console && typeof console.log === "function") {
         console.log(str);
     } else if (typeof print === "function") {
-        print(`${scriptname ?? "significant.js: "}${str}`);
+        print(`${scriptname ?? "SIGNIFIG: "}${str}`);
     }
 }
 
@@ -821,7 +821,7 @@ function consolelog(s) {
 function logit(s) {
     const now  = new Date()
     const hour = now.getHours()
-    if (hour === 28 || verboseAsked || debugEnabled || testingAsked) { // ... or always at a certain hour to ease retrospective debugging
+    if (verboseAsked || debugEnabled || testingAsked) { // ... or always at a certain hour to ease retrospective debugging
         consolelog(`${s}`)
         return true;
     } else {
@@ -830,7 +830,7 @@ function logit(s) {
  }
 
 function logitmore(s) { // increased logging
-    if (verboseIncreased || testingAsked) {
+    if (verboseIncreased || debugEnabled || testingAsked) {
         logit(s)
     }
  }
@@ -897,9 +897,9 @@ function setDefault(value, defaultValue) {
     return typeof defaultValue === 'function' ?  defaultValue(value)  :  (value !== undefined) ? value : defaultValue;
 }
 
-// splitScaleValue(): split a scale value into its integer and fractional part, 
+// splitNumber(): split a scale value into its integer and fractional part, 
 // and mirror the fractional part at 0.5 if it islarger than 0.5 to get nicer rounding steps (e.g. 1, 2, 5, 10) for the fractional part than for values close to 1 (e.g. 0.8 with steps 1, 4, 6, 8)
-function splitScaleValue(scaleval) {
+function splitNumber(scaleval) {
     var frac = roundTo(scaleval - floor(scaleval), 1)
     frac = frac > 0.5 ? roundTo(1 - frac, 1) : frac; // mirror the fractional part at 0.5 if larger
     scaleval = floor(scaleval)
@@ -937,21 +937,28 @@ function compassAngleToDir(deg, scale = 2) {
   var optsFromQuery = {};
   if (query) {
     scriptname = `${__scriptName.split('?')[1]}: `; // for logging
-    consolelog(scriptname + __scriptName.split('?')[0])
+    // consolelog(scriptname + __scriptName.split('?')[0])
     query.split('&').forEach(p => {
       var [k, v] = p.split('=');
       if (k) optsFromQuery[decodeURIComponent(k)] = decodeURIComponent(v || '');
     });
+    if (isTrue(optsFromQuery.verbose)) {
+      consolelog(`${scriptname}: PARSED query options: ${query}`);  // FIXME: remove this log after debugging
+    }
   }
 
-  // Pick up any injected globals (some transform profiles define them directly)
+  // Pick up any injected globals (some transformation profiles define them directly)
   var injected = {};
-  var option_keys = ['precision', 'prec', 'scale', 'unit', 'div', 'mult', 'offset', 'skew', 'si', 'verbose', 'testing', 'flicker', 'dryRun', 'id', 'ident']
+  var option_keys = ['precision','prec','scale','unit','div','mult','offset','skew','si','verbose','testing','flicker','dryRun','id','ident']
   option_keys.forEach(k => {
     if (this[k] != null) injected[k] = this[k];
     // if (this[k] != undefined) consolelog(`PARAM: ${k} ===> ${this[k]}`);
     this[k] = undefined; // reset the injected globals to undefined to avoid interference with next invocation
   });
+  // if injected has one or more elements, log them for debugging purposes:
+  if (Object.keys(injected).length > 0 && isTrue(injected.verbose)) {
+    consolelog(`${scriptname}: PICKED UP injected options: ${JSON.stringify(injected)}`);
+  }
 
   // `input` is injected by the openHAB transform runtime
   var opts = Object.assign({}, optsFromQuery, injected);
